@@ -258,7 +258,7 @@ img{display:block;max-width:100%}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media print{.no-print{display:none!important}}
 .t3{color:var(--t3)}
-.more-w{position:relative;display:inline-block}.more-w .pop{display:none;right:0;top:22px;min-width:120px}.more-w.open .pop{display:block}.pop .pi.red{color:var(--err)}
+.more-w{position:relative;display:inline-block}.more-w .pop{display:none;right:0;top:22px;min-width:120px}.more-w.open .pop{display:block}.pop.more-float{position:fixed;z-index:96;display:block;min-width:120px;right:auto;margin:0;white-space:nowrap}.pop .pi.red{color:var(--err)}
 .av-s{width:22px;height:22px;border-radius:50%;background:var(--pri-l);color:var(--pri);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none}
 .th-img{width:44px;height:32px;object-fit:cover;border-radius:4px;display:block}
 tr.hl td{background:#FFFBF0}tr.dim td{color:var(--t3)}
@@ -2305,7 +2305,59 @@ html,body.screen{background:#050E1F;overflow:hidden;height:100%}
     ctl.rows = filtered;
     function visActs(r) { return acts.filter(function (a) { if (a.show && !App.ex(a.show)(r)) return false; if (a.act && !App.can(a.act, r)) return false; if (a.ap) { var ap = S.get('ap', App.val(r, a.ap === true ? 'apId' : a.ap)); return ap && App.canAp(ap); } return true; }); }
     ctl.visActs = visActs;
+    /* 更多菜单挂到 body：操作列 sticky + 表格 overflow 会把 absolute/fixed 一起裁掉 */
+    var moreFloats = [];
+    function recById(id) { return id ? (S.get(cfg.ent, id) || (typeof cfg.rows === 'function' ? cfg.rows().find(function (x) { return x.id === id; }) : null)) : null; }
+    function closeMore(wrap) {
+      if (!wrap) return;
+      var i = moreFloats.indexOf(wrap); if (i >= 0) moreFloats.splice(i, 1);
+      var pp = wrap._pop; wrap._pop = null; wrap.classList.remove('open');
+      if (!pp) return;
+      pp.classList.remove('more-float');
+      if (wrap.isConnected) wrap.appendChild(pp); else pp.remove();
+      pp.removeAttribute('style');
+    }
+    function closeMores() { moreFloats.slice().forEach(closeMore); App.$$('.more-w.open', el).forEach(closeMore); }
+    function placeMore(wrap) {
+      var mo = wrap.querySelector('[data-more]'), pp = wrap._pop;
+      if (!wrap.isConnected || !mo || !pp) return closeMore(wrap);
+      var rc = mo.getBoundingClientRect();
+      var clip = mo.closest('.tbl-w') || mo.closest('.card');
+      if (clip) { var cr0 = clip.getBoundingClientRect(); if (rc.bottom <= cr0.top + 1 || rc.top >= cr0.bottom - 1) return closeMore(wrap); }
+      pp.style.maxHeight = ''; pp.style.overflowY = '';
+      var gap = 4, margin = 8, vh = window.innerHeight, vw = window.innerWidth;
+      var ph = pp.offsetHeight, pw = pp.offsetWidth, maxH = Math.max(80, vh - margin * 2);
+      if (ph > maxH) { pp.style.maxHeight = maxH + 'px'; pp.style.overflowY = 'auto'; ph = pp.offsetHeight; pw = pp.offsetWidth; }
+      var belowView = vh - rc.bottom - gap - margin, aboveView = rc.top - gap - margin, belowBox = belowView;
+      if (clip) belowBox = Math.min(belowView, clip.getBoundingClientRect().bottom - rc.bottom - gap);
+      var up = (belowBox < ph && aboveView >= ph) || (belowView < ph && aboveView > belowView);
+      var top = up ? rc.top - gap - ph : rc.bottom + gap;
+      if (top < margin) top = margin;
+      if (top + ph > vh - margin) top = Math.max(margin, vh - margin - ph);
+      var left = rc.right - pw;
+      if (left < margin) left = margin;
+      if (left + pw > vw - margin) left = Math.max(margin, vw - margin - pw);
+      pp.style.top = Math.round(top) + 'px'; pp.style.left = Math.round(left) + 'px'; pp.style.right = 'auto'; pp.style.bottom = 'auto'; pp.style.visibility = 'visible';
+    }
+    function openMore(mo) {
+      var wrap = mo.closest('.more-w'); if (!wrap) return;
+      var pp = wrap.querySelector('.pop'); if (!pp) return;
+      var tr = mo.closest('tr[data-id]');
+      pp._rowId = tr ? tr.dataset.id : ''; pp._home = wrap; wrap._pop = pp;
+      if (!pp._bound) { pp._bound = 1; pp.addEventListener('click', function (e) {
+        var ac = e.target.closest('[data-act]'); e.stopPropagation(); if (!ac) return;
+        var home = pp._home, id = pp._rowId, idx = +ac.dataset.act;
+        closeMore(home); runAct(acts[idx], recById(id));
+      }); }
+      pp.classList.add('more-float');
+      pp.style.position = 'fixed'; pp.style.zIndex = '96'; pp.style.display = 'block'; pp.style.margin = '0'; pp.style.right = 'auto'; pp.style.visibility = 'hidden'; pp.style.pointerEvents = 'auto';
+      document.body.appendChild(pp);
+      wrap.classList.add('open');
+      if (moreFloats.indexOf(wrap) < 0) moreFloats.push(wrap);
+      placeMore(wrap);
+    }
     function render() {
+      closeMores();
       var all = base(), rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / st.size));
       if (st.page > pages) st.page = pages;
       var view = rows.slice((st.page - 1) * st.size, st.page * st.size);
@@ -2355,13 +2407,15 @@ html,body.screen{background:#050E1F;overflow:hidden;height:100%}
       if (d) { var k2 = d.dataset.do; if (k2 === 'search') { readF(); st.page = 1; render(); } if (k2 === 'resetf') { st.q = ''; st.f = {}; st.page = 1; render(); } if (k2 === 'clearsel') { st.sel = {}; render(); } return; }
       if (t.matches('[data-all]')) { var rows = filtered().slice((st.page - 1) * st.size, st.page * st.size); rows.forEach(function (r) { if (t.checked) st.sel[r.id] = 1; else delete st.sel[r.id]; }); return render(); }
       if (t.matches('[data-ck]')) { var r0 = recOf(t); if (t.checked) st.sel[r0.id] = 1; else delete st.sel[r0.id]; return render(); }
-      var mo = t.closest('[data-more]'); if (mo) { e.stopPropagation(); App.$$('.more-w.open', el).forEach(function (x) { if (x !== mo.parentNode) x.classList.remove('open'); }); mo.parentNode.classList.toggle('open'); var pp = mo.parentNode.querySelector('.pop'), rc = mo.getBoundingClientRect(); pp.style.position = 'fixed'; pp.style.top = (rc.bottom + 4) + 'px'; pp.style.left = (rc.right - 120) + 'px'; pp.style.right = 'auto'; return; }
+      var mo = t.closest('[data-more]'); if (mo && mo.closest('.more-w')) { e.stopPropagation(); var wrap = mo.closest('.more-w'), was = wrap.classList.contains('open'); closeMores(); if (!was) openMore(mo); return; }
       var sw = t.closest('[data-sw]'); if (sw) { var rs = recOf(sw), col = cfg.cols.find(function (c) { return c.k === sw.dataset.sw; }); if (col.onToggle) return App.fns[col.onToggle] ? App.fns[col.onToggle](rs, ctl) : App.act(col.onToggle, rs, refresh); rs[col.k] = !rs[col.k]; S.tl(rs, (rs[col.k] ? '启用' : '停用') + col.l); S.log((rs[col.k] ? '启用' : '停用') + col.l, rs.no || rs.name); S.save(); App.toast('已' + (rs[col.k] ? '启用' : '停用')); return; }
-      var ac = t.closest('[data-act]'); if (ac) { var p = ac.closest('.more-w'); if (p) p.classList.remove('open'); return runAct(acts[+ac.dataset.act], recOf(ac)); }
+      var ac = t.closest('[data-act]'); if (ac) { var p = ac.closest('.more-w'); if (p) closeMore(p); return runAct(acts[+ac.dataset.act], recOf(ac)); }
       var op = t.closest('[data-open]'); if (op) { return openRec(recOf(op)); }
       var tl = t.closest('[data-tool]'); if (tl) return runTool(cfg.tools[+tl.dataset.tool]);
     });
-    document.addEventListener('click', function () { App.$$('.more-w.open', el).forEach(function (x) { x.classList.remove('open'); }); });
+    document.addEventListener('click', function () { closeMores(); });
+    window.addEventListener('scroll', function () { moreFloats.slice().forEach(placeMore); }, true);
+    window.addEventListener('resize', function () { moreFloats.slice().forEach(placeMore); });
     el.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches('[data-q]')) { readF(); st.page = 1; render(); } if (e.key === 'Enter' && e.target.matches('[data-jump]')) { st.page = Math.max(1, +e.target.value || 1); render(); } });
     el.addEventListener('change', function (e) { if (e.target.matches('[data-size]')) { st.size = +e.target.value; st.page = 1; render(); } else if (e.target.matches('[data-fk]')) { readF(); st.page = 1; render(); } });
     function readF() {
