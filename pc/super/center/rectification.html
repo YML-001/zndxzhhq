@@ -8,8 +8,8 @@
 /* 设计变量：沿用 design-system.md 中南主色体系 */
 :root{
   --pri:#3087CC;--pri-l:#E3F1F9;--pri-d:#006DAD;--pri-b:#BADEF3;--blue6:#9CBFDA;--blue8:#D6EAF9;
-  --t1:#3C444F;--t2:#696F7D;--t3:#9096A2;--ph:#ABB0BA;--bd:#C8CAD1;--line:#E6E8EC;--bg:#F4F6F9;--card:#fff;
-  --ok:#1BB975;--ok-l:#E8FCF4;--ok-b:#A7F3D0;--warn:#F29100;--warn-l:#FFF5E5;--warn-b:#FFE0B3;
+  --t1:#3C444F;--t2:#4E5663;--t3:#5C6570;--ph:#6B7280;--bd:#C8CAD1;--line:#E6E8EC;--bg:#F4F6F9;--card:#fff;
+  --ok:#0E8F58;--ok-l:#E8FCF4;--ok-b:#A7F3D0;--warn:#B86E00;--warn-l:#FFF5E5;--warn-b:#FFE0B3;
   --err:#DF2027;--err-l:#FCE8EA;--err-b:#F6BCBE;--off:#9096A2;--off-l:#F1F2F3;--off-b:#C8CAD1;
   --r:8px;--r-sm:4px;--sh-sm:0 1px 3px rgba(0,0,0,.06);--sh-md:0 2px 8px rgba(0,0,0,.05);--sh-lg:0 8px 24px rgba(20,40,80,.12);
   --font:'OPPOSans',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
@@ -33,12 +33,13 @@ img{display:block;max-width:100%}
 /* 按钮 */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border-radius:var(--r);border:1px solid var(--bd);background:#fff;color:var(--t1);cursor:pointer;white-space:nowrap;transition:all .15s;font-size:14px}
 .btn:hover{border-color:var(--pri);color:var(--pri)}
-.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}.btn.pri:hover{background:var(--pri-d);border-color:var(--pri-d);color:#fff}
+.btn.pri{background:#006DAD;border-color:#006DAD;color:#fff}.btn.pri:hover{background:#005E96;border-color:#005E96;color:#fff}
 .btn.ghost{border-color:var(--pri);color:var(--pri)}.btn.ghost:hover{background:var(--pri-l)}
 .btn.danger{border-color:var(--err-b);color:var(--err)}.btn.danger:hover{background:var(--err-l)}
 .btn.okb{background:var(--ok);border-color:var(--ok);color:#fff}.btn.warnb{background:var(--warn);border-color:var(--warn);color:#fff}
 .btn.sm{height:28px;padding:0 10px;font-size:13px}.btn.lg{height:40px;padding:0 20px;font-size:15px}
-.btn[disabled]{opacity:.5;pointer-events:none}
+.btn[disabled]{opacity:.55;pointer-events:none;color:var(--t2)}
+.btn:focus-visible,.chip:focus-visible,.sc:focus-visible,.inp:focus-visible,.sel:focus-visible,.ta:focus-visible{outline:2px solid #006DAD;outline-offset:2px}
 .btn.loading{pointer-events:none;opacity:.8}
 .btn.loading::before{content:'';width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -622,8 +623,74 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     me: function (role) {
       role = role || S.role;
       var m = Object.assign({ role: role }, B.me[role] || {});
+      var prof = (db.meta.profiles || {})[role];
+      if (prof && prof.phone) m.phone = prof.phone;
       if (role === 'third') { var c = S.co(); if (c) { m.name = c.contact; m.coName = c.name; m.post = c.type + ' · ' + c.name; } }
       return m;
+    },
+    saveProfile: function (role, patch) {
+      role = role || S.role;
+      db.meta.profiles = db.meta.profiles || {};
+      db.meta.profiles[role] = Object.assign({}, db.meta.profiles[role] || {}, patch || {});
+    },
+    permRole: function () {
+      if ((window.CTX || {}).shell === 'super') return null;
+      return S.find('role', function (x) { return x.key === S.role && x.permOn; });
+    },
+    menuAllowed: function (path) {
+      var role = S.permRole();
+      if (!role || !role.menus || !role.menus.length) return true;
+      path = String(path || '');
+      return role.menus.some(function (m) { return m === path; });
+    },
+    btnAllowed: function (label) {
+      var role = S.permRole();
+      if (!role) return true;
+      var text = String(label || '');
+      var keys = [['补录', '新增'], ['上传', '新增'], ['新建', '新增'], ['新增', '新增'], ['编辑', '编辑'], ['删除', '删除'], ['导出', '导出'], ['导入', '导入'], ['审批', '审批'], ['打印', '打印']];
+      var need = '';
+      keys.forEach(function (p) { if (!need && text.indexOf(p[0]) >= 0) need = p[1]; });
+      if (!need) return true;
+      return (role.btns || []).indexOf(need) >= 0;
+    },
+    scopeOk: function (rec) {
+      var role = S.permRole();
+      if (!role || !rec) return true;
+      var ds = role.dataScope || {};
+      if (ds.campus && ds.campus.length && rec.campus && ds.campus.indexOf(rec.campus) < 0) return false;
+      if (ds.center && ds.center.length) {
+        var c = rec.centerId || rec.center || rec.dept || rec.unit;
+        if (c && B.centers.indexOf(c) >= 0 && ds.center.indexOf(c) < 0) return false;
+      }
+      return true;
+    },
+    centerOwn: function (r) {
+      if (S.role !== 'center' || !r) return true;
+      var c = (S.me().center) || '';
+      if (!c) return true;
+      return r.unit === c || r.centerId === c || r.dept === c;
+    },
+    transferPeople: function () {
+      return [
+        { v: '马国庆', l: '马国庆（修缮科科长）', role: 'leader' },
+        { v: '程立新', l: '程立新（物资科科长）', role: 'leader' },
+        { v: '彭海燕', l: '彭海燕（监督科科长）', role: 'supervisor' },
+        { v: '黄建华', l: '黄建华（分管副部长）', role: 'leader' },
+        { v: '林志远', l: '林志远（部长）', role: 'leader' },
+        { v: '赵磊', l: '赵磊（修缮项目管理员）', role: 'project' },
+        { v: '钱芳', l: '钱芳（财务处）', role: 'finance' },
+        { v: '孙丽', l: '孙丽（物资管理员）', role: 'material' },
+        { v: '周文斌', l: '周文斌（维修服务中心）', role: 'center' }
+      ];
+    },
+    personOf: function (key) {
+      return S.transferPeople().filter(function (p) { return p.v === key || p.l === key || key.indexOf(p.v) >= 0; })[0] || null;
+    },
+    nodeMine: function (n) {
+      if (!n || n.role !== S.role) return false;
+      if (n.role === 'third' && n.co !== (S.co() || {}).id) return false;
+      if (n.assignee && n.assignee !== (S.me().name || '')) return false;
+      return true;
     },
     who: function () { var m = S.me(); return m.coName ? m.name + '（' + m.coName + '）' : m.name; },
     roleName: function (r) { return B.roleNames[r || S.role]; },
@@ -706,14 +773,19 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     },
 
     /* ---------- 审批流 ---------- */
-    flowOf: function (biz) { return S.find('flow', function (f) { return f.biz === biz; }); },
+    flowOf: function (biz) { return S.find('flow', function (f) { return f.biz === biz && f.status !== '停用'; }); },
     startAp: function (biz, o) {
-      var f = S.flowOf(biz); if (!f) throw new Error('未配置审批流：' + biz);
-      var ctx = Object.assign({ amount: 0 }, o.ctx || {}, { amount: +o.amount || 0 });
+      var any = S.find('flow', function (f) { return f.biz === biz; });
+      var f = S.flowOf(biz);
+      if (!f) throw new Error(any ? '审批流已停用，不能新建审批' : '未配置审批流：' + biz);
+      var ctx = Object.assign({ amount: 0, ratio: 0 }, o.ctx || {}, { amount: +o.amount || 0 });
+      if (o.ctx && o.ctx.ratio != null) ctx.ratio = +o.ctx.ratio;
+      f.nodes.forEach(function (n) { if (n.cond) S.evalCond(n.cond, ctx); });
       var nodes = f.nodes.filter(function (n) { return !n.cond || S.evalCond(n.cond, ctx); }).map(function (n) {
         var role = n.role; if (role && role.charAt(0) === '@') role = ctx[role.slice(1)] || 'leader';
         return { name: n.name, role: role, who: role === 'third' ? (S.get('co', ctx.co) || {}).name || '第三方单位' : n.who || B.roleNames[role] || '系统', co: role === 'third' ? ctx.co : '', status: '未开始', limit: n.limit || '' };
       });
+      if (!nodes.length) throw new Error('当前条件下没有可执行的审批节点，不能自动通过');
       var rec = o.ent ? S.get(o.ent, o.refId) : null;
       var round = 1, prevId = '';
       if (rec && rec.apId) {
@@ -751,7 +823,14 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     apCur: function (ap) { return ap && ap.status === '审批中' ? ap.nodes[ap.cur] : null; },
     apTodo: function (role, co) {
       role = role || S.role; if (role === 'third' && co == null) co = (S.co() || {}).id;
-      return S.where('ap', function (a) { var n = S.apCur(a); return n && n.role === role && (role !== 'third' || n.co === co); });
+      var meName = role === S.role ? (S.me().name || '') : ((B.me[role] || {}).name || '');
+      return S.where('ap', function (a) {
+        var n = S.apCur(a);
+        if (!n || n.role !== role) return false;
+        if (role === 'third' && n.co !== co) return false;
+        if (n.assignee && n.assignee !== meName) return false;
+        return true;
+      });
     },
     apDone: function (role) {
       role = role || S.role; var c = role === 'third' ? (S.co() || {}).id : '';
@@ -780,9 +859,12 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     },
     transfer: function (id, to, opinion) {
       var ap = S.get('ap', id), n = S.apCur(ap); if (!n) throw new Error('该审批单当前不可转办');
-      n.trans = (n.trans || []).concat([{ from: S.who(), to: to, time: now(), opinion: opinion || '' }]); n.who = to; n.result = '转办'; n.by = S.who(); n.byRole = S.roleName();
-      S.log('审批转办', ap.type + ' ' + ap.no + ' → ' + to);
-      return '已转办给 ' + to;
+      var person = S.personOf(to); if (!person) throw new Error('请选择具体办理人');
+      n.trans = (n.trans || []).concat([{ from: S.who(), fromRole: n.role, to: person.l, toRole: person.role, time: now(), opinion: opinion || '' }]);
+      n.who = person.l; n.assignee = person.v; n.role = person.role; n.result = ''; n.status = '处理中'; n.by = S.who(); n.byRole = S.roleName();
+      S.notify(person.role, '待审批：' + ap.type + '（转办）', ap.title + ' 已转给 ' + person.l, S.apLink(person.role, ap));
+      S.log('审批转办', ap.type + ' ' + ap.no + ' → ' + person.l);
+      return '已转办给 ' + person.l;
     },
     addSign: function (id, to, opinion) {
       var ap = S.get('ap', id), n = S.apCur(ap); if (!n) throw new Error('该审批单当前不可加签');
@@ -829,7 +911,21 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       var m = { wo: 'pc/dispatcher/workorder-detail.html?id=', proj: 'pc/project/project-detail.html?id=', contract: 'pc/project/contracts.html?id=', chg: 'pc/project/construction.html?id=', acc: 'pc/project/acceptance.html?id=', psettle: 'pc/project/settlement.html?id=', pplan: 'pc/material/purchase-plans.html?id=', sout: 'pc/material/outbound.html?id=', stk: 'pc/material/stocktake.html?id=', co: 'pc/third-party/qualification.html?id=', recon: 'pc/material/reconciliation.html?id=', settle: 'pc/dispatcher/settlement.html?id=', exc: 'pc/center/inspection-exceptions.html?id=', itask: 'pc/center/inspection-tasks.html?id=', stask: 'pc/supervisor/tasks.html?id=' };
       return (m[ap.ent] || '') + ap.refId;
     },
-    evalCond: function (cond, ctx) { try { return !!(new Function('c', 'with(c){return (' + cond + ')}'))(ctx); } catch (e) { return false; } },
+    evalCond: function (cond, ctx) {
+      cond = String(cond || '').trim();
+      ctx = ctx || {};
+      if (!cond) return true;
+      if (cond === 'co') return !!ctx.co;
+      var m = /^(amount|ratio)\s*(>=|<=|>|<|==)\s*(\d+(?:\.\d+)?)$/.exec(cond);
+      if (!m) throw new Error('审批条件无法解析：' + cond);
+      var left = +ctx[m[1]]; if (!isFinite(left)) left = 0;
+      var right = +m[3];
+      if (m[2] === '>') return left > right;
+      if (m[2] === '>=') return left >= right;
+      if (m[2] === '<') return left < right;
+      if (m[2] === '<=') return left <= right;
+      return left === right;
+    },
     HOOK: {},
     A: {},
 
@@ -851,9 +947,10 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       var t = Date.now();
       S.all('rect').forEach(function (r) { if ((r.status === '待整改' || r.status === '整改中') && r.deadline && parse(r.deadline) < t) { r.overdue = true; } });
       S.all('itask').forEach(function (r) { if ((r.status === '待执行' || r.status === '执行中') && r.end && parse(r.end) < t) { r.status = '已超时'; } });
-      var mins = +((db.meta.warnCfg || {}).timeout) || 30;
+      var globalMin = +((db.meta.warnCfg || {}).timeout) || 30;
       S.all('wo').forEach(function (r) {
-        r.overtime = (r.status === '待接单' && parse(r.dispatchAt || r.createdAt) < t - mins * 60000) || (r.status === '处理中' && parse(r.createdAt) < t - 48 * 3600000);
+        var mins = +r.limitMin > 0 ? +r.limitMin : globalMin;
+        r.overtime = (r.status === '待接单' && !r.pool && parse(r.dispatchAt || r.createdAt) < t - mins * 60000) || (r.status === '处理中' && parse(r.createdAt) < t - 48 * 3600000);
         if (r.status !== '待接单' || r.pool || !r.staffId || !r.dispatchAt || parse(r.dispatchAt) >= t - mins * 60000 || !S.score) return;
         try {
           var prev = r.staffName;
@@ -909,8 +1006,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
         add('服务商准入审核', apn, 'pc/supervisor/service-providers.html?tab=准入审核', 'id-verified', 'green');
       } else if (role === 'center') {
         add('巡检异常待处理', S.count('exc', function (r) { return r.status === '待确认' || r.status === '处理中'; }), 'pc/center/inspection-exceptions.html', 'alert-02', 'red');
-        add('整改单待处理', S.count('rect', function (r) { return r.unitType === 'center' && (r.status === '待整改' || r.status === '整改中'); }), 'pc/center/rectification.html', 'note-edit', 'orange');
-        add('投诉待处理', S.count('cpl', function (r) { return r.unitType === 'center' && r.status === '处理中'; }), 'mobile/center/home.html', 'megaphone-01', 'purple');
+        add('整改单待处理', S.count('rect', function (r) { return r.unitType === 'center' && S.centerOwn(r) && (r.status === '待整改' || r.status === '整改中'); }), 'pc/center/rectification.html', 'note-edit', 'orange');
+        add('投诉待处理', S.count('cpl', function (r) { return r.unitType === 'center' && S.centerOwn(r) && r.status === '处理中'; }), 'mobile/center/home.html', 'megaphone-01', 'purple');
         add('待我审批', apn, 'mobile/center/approval.html', 'checkmark-badge-01', 'green');
       } else if (role === 'project') {
         add('转专项待受理', apn, 'pc/project/approval.html', 'construction', 'orange');
@@ -1276,7 +1373,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       var sr = SREC.filter(function (x) { return x.result === '不合格'; })[k % 5] || SREC[k];
       var toCenter = k % 5 === 4;
       var t = ago(ri(1, 12), ri(0, 8));
-      var r = S.add('rect', { source: k % 4 === 3 ? '投诉转办' : '监督检查', srecId: sr.id, svc: sr.svc, campus: sr.campus, loc: sr.loc, issue: sr.problems || '服务不达标', require: '立即整改，提交整改前后对比照片', deadline: k < 2 ? ago(0, 6) : after(ri(0, 3), ri(2, 20)), level: pick(['一般', '一般', '严重']), unitType: toCenter ? 'center' : 'co', coId: toCenter ? '' : sr.coId, unit: toCenter ? '物业服务中心' : sr.coName, supervisor: sr.supervisor, status: st, before: [img(sr.svc === '保洁服务' ? 'clean' : 'campus')], after: [], createdAt: t, tl: [] });
+      var centerName = k % 2 === 0 ? '维修服务中心' : '物业服务中心';
+      var r = S.add('rect', { source: k % 4 === 3 ? '投诉转办' : '监督检查', srecId: sr.id, svc: sr.svc, campus: sr.campus, loc: sr.loc, issue: sr.problems || '服务不达标', require: '立即整改，提交整改前后对比照片', deadline: k < 2 ? ago(0, 6) : after(ri(0, 3), ri(2, 20)), level: pick(['一般', '一般', '严重']), unitType: toCenter ? 'center' : 'co', coId: toCenter ? '' : sr.coId, unit: toCenter ? centerName : sr.coName, centerId: toCenter ? centerName : '', supervisor: sr.supervisor, status: st, before: [img(sr.svc === '保洁服务' ? 'clean' : 'campus')], after: [], createdAt: t, tl: [] });
       T(r, t, r.supervisor, '监督员', '下发整改', r.issue + '；期限 ' + r.deadline);
       if (st !== '待整改') T(r, addMin(t, 60), r.unit, '责任单位', '接收整改', '已安排人员处理');
       if (st === '待复查' || st === '已闭环') { r.measure = '已安排专人清理并加强巡查频次'; r.after = [img('clean')]; r.doneAt = addMin(t, 240); T(r, r.doneAt, r.unit, '责任单位', '提交整改结果', r.measure); }
@@ -1289,7 +1387,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       var r = S.add('cpl', { source: pick(['热线', '公众号', 'ITS', '扫码']), name: pname(), phone: phone(), svc: k < 3 ? '保洁服务' : sv, content: k < 3 ? '南校区文学院楼卫生间长时间无人打扫，异味很大' : cplText[sv], campus: cp, loc: pick(bldOf(cp)).name, photos: k % 2 ? [img('clean')] : [], level: pick(['一般', '一般', '紧急']), status: st, createdAt: k < 3 ? ago(0, k * 5 + 2) : t, tl: [] });
       if (k === 3 || k === 8) { r.name = me.name; r.phone = me.phone; r.reporterId = me.id; r.campus = me.campus; r.loc = me.building; r.svc = k === 3 ? '宿管服务' : '保洁服务'; r.content = k === 3 ? '宿舍楼热水供应时间太短，晚上 10 点后经常没有热水' : '升华公寓 3 栋楼道垃圾清理不及时'; }
       T(r, r.createdAt, r.name, '师生用户', '提交投诉', r.content);
-      if (st !== '待分派') { var cc = svcCo[r.svc]; r.unitType = k % 4 === 0 ? 'center' : 'co'; r.coId = r.unitType === 'co' ? cc.id : ''; r.unit = r.unitType === 'co' ? cc.name : '物业服务中心'; r.deadline = after(1); T(r, addMin(r.createdAt, 30), B.me.supervisor.name, '监督员', '分派处理', '分派至 ' + r.unit + '，限 24 小时内处理'); }
+      if (st !== '待分派') { var cc = svcCo[r.svc]; var centerName = Math.floor(k / 4) % 2 === 0 ? '维修服务中心' : '物业服务中心'; r.unitType = k % 4 === 0 ? 'center' : 'co'; r.coId = r.unitType === 'co' ? cc.id : ''; r.unit = r.unitType === 'co' ? cc.name : centerName; r.centerId = r.unitType === 'center' ? centerName : ''; r.deadline = after(1); T(r, addMin(r.createdAt, 30), B.me.supervisor.name, '监督员', '分派处理', '分派至 ' + r.unit + '，限 24 小时内处理'); }
       if (st === '待回访' || st === '已办结' || st === '已升级') { r.result = '已约谈相关人员并加强管理，问题已整改'; T(r, addMin(r.createdAt, 400), r.unit, '责任单位', '提交处理结果', r.result); }
       if (st === '已办结') { r.sat = pick(['满意', '满意', '基本满意']); T(r, addMin(r.createdAt, 900), B.me.supervisor.name, '监督员', '回访办结', '投诉人' + r.sat); }
       if (st === '已升级') { r.sat = '不满意'; T(r, addMin(r.createdAt, 900), B.me.supervisor.name, '监督员', '回访不满意，升级督办', '已报分管领导督办'); }
@@ -1699,7 +1797,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     dict: function (t) { return S.where('dict', function (d) { return d.type === t && d.status === '启用'; }).sort(function (a, b) { return a.sort - b.sort; }).map(function (d) { return d.name; }); },
     role: function () { return S.all('role').map(function (r) { return { v: r.key, l: r.name }; }); },
     orgP: function () { return [''].concat(S.all('org').map(function (o) { return o.name; })); },
-    leaderP: function () { return ['马国庆（修缮科科长）', '程立新（物资科科长）', '彭海燕（监督科科长）', '黄建华（分管副部长）', '林志远（部长）']; }
+    leaderP: function () { return S.transferPeople().map(function (p) { return { v: p.v, l: p.l }; }); }
   };
 
   /* ---------- 报修：派单辅助 ---------- */
@@ -1708,8 +1806,15 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   S.recommend = function (r) { var best = null, bs = -1e9; S.where('staff', function (s) { return s.enabled; }).forEach(function (s) { var sc = S.score(s, r); if (sc > bs) { bs = sc; best = s; } }); return best ? best.id : ''; };
   S.assign = function (r, sid, how, note) {
     var s = S.get('staff', sid); if (!s) err('请选择维修人员');
+    var switching = r.staffId && r.staffId !== s.id;
+    if (switching && (r.checkinAt || r.repairStart || r.repairPause || (r.nodes && r.nodes.length))) {
+      r.execRounds = r.execRounds || [];
+      r.execRounds.push({ round: r.execRound || 1, staffId: r.staffId, staffName: r.staffName, checkinAt: r.checkinAt || '', repairStart: r.repairStart || '', repairPause: !!r.repairPause, nodes: (r.nodes || []).slice() });
+      r.execRound = (r.execRound || 1) + 1;
+      r.nodes = []; r.repairStart = ''; r.repairPause = false;
+    }
     r.staffId = s.id; r.staffName = s.name; r.team = s.team; r.staffPhone = s.phone; r.pool = false; r.status = '待接单'; r.dispatchAt = now(); r.acceptAt = ''; r.checkinAt = '';
-    S.tl(r, how || '派单', '派给 ' + s.name + '（' + s.team + '）' + (note ? '；' + note : ''));
+    S.tl(r, how || '派单', '派给 ' + s.name + '（' + s.team + '）' + (r.execRound > 1 ? '；第 ' + r.execRound + ' 轮' : '') + (note ? '；' + note : ''));
     S.notify('repairman', '新派单：' + r.cat, r.campus + ' ' + r.loc + '：' + r.desc, 'mobile/repairman/task-detail.html?id=' + r.id);
     if (r.reporterId) S.notify('user', '工单已派单', r.no + ' 已派给 ' + s.name + '，请保持电话畅通', 'mobile/user/order-detail.html?id=' + r.id);
     return s;
@@ -1745,15 +1850,28 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     });
     return { n: n, pool: pool, manual: manual };
   };
-  S.stockOut = function (whId, items) {
-    items.forEach(function (l) {
-      var iv = S.find('inv', function (r) { return r.whId === whId && r.goodsId === l.goodsId; });
-      if (!iv) err((l.name || '物资') + ' 在该仓库无库存');
-      if (iv.qty < l.qty) err(l.name + ' 库存不足（现有 ' + iv.qty + ' ' + iv.unit + '）');
+  S.stockPlan = function (whId, items) {
+    var need = {};
+    (items || []).forEach(function (l) {
+      if (!l.goodsId) return;
+      if (!need[l.goodsId]) need[l.goodsId] = { goodsId: l.goodsId, name: l.name || '', qty: 0 };
+      need[l.goodsId].qty += +l.qty || 0;
+      if (l.name) need[l.goodsId].name = l.name;
     });
-    items.forEach(function (l) {
-      var iv = S.find('inv', function (r) { return r.whId === whId && r.goodsId === l.goodsId; });
-      iv.qty -= +l.qty;
+    var plan = [];
+    Object.keys(need).forEach(function (id) {
+      var n = need[id];
+      var iv = S.find('inv', function (r) { return r.whId === whId && r.goodsId === id; });
+      if (!iv) err((n.name || '物资') + ' 在该仓库无库存');
+      if (iv.qty < n.qty) err((n.name || iv.name) + ' 库存不足（现有 ' + iv.qty + '，本次合计 ' + n.qty + '）');
+      plan.push(iv);
+    });
+    return { need: need, plan: plan };
+  };
+  S.stockOut = function (whId, items) {
+    var packed = S.stockPlan(whId, items);
+    packed.plan.forEach(function (iv) {
+      iv.qty -= packed.need[iv.goodsId].qty;
       if (iv.qty < iv.safe && !S.find('warn', function (w) { return w.status === '待处置' && w.title.indexOf(iv.whName + ' ' + iv.name) >= 0; })) {
         S.add('warn', { sub: '物资', type: '库存预警', title: iv.whName + ' ' + iv.name + ' 低于安全库存（' + iv.qty + '/' + iv.safe + '）', area: iv.whName, level: '中', time: now(), status: '待处置', link: 'pc/material/inventory.html' }, { noTl: true });
         S.notify('material', '库存预警', iv.whName + ' ' + iv.name + ' 当前 ' + iv.qty + iv.unit, 'pc/material/inventory.html?tab=低库存');
@@ -1770,13 +1888,53 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       else { var g = S.get('goods', l.goodsId); S.add('inv', { goodsId: g.id, code: g.no, name: g.name, cat: g.cat, spec: g.spec, unit: g.unit, price: g.price, whId: whId, whName: w.name, qty: q, safe: 10, loc: 'A-01-01', consign: g.consign, owner: g.consign ? '供应商寄售' : '学校自有', supplierId: g.supplierId, supplier: g.supplier, batch: batch || '', expire: '', rfid: 'E200' + u.ri(10000000, 99999999) }, { noTl: true }); }
     });
   };
-  S.overQuota = function (items) { return items.some(function (l) { var g = S.get('goods', l.goodsId); return g && +l.qty > g.quota; }); };
+  S.quotaUsed = function (dept, goodsId, exceptId) {
+    var month = u.today().slice(0, 7), n = 0;
+    S.where('sout', function (o) {
+      if (exceptId && o.id === exceptId) return false;
+      if ((o.dept || '') !== dept) return false;
+      if (o.status === '已驳回' || o.status === '已取消') return false;
+      return (o.createdAt || '').slice(0, 7) === month;
+    }).forEach(function (o) { (o.items || []).forEach(function (l) { if (l.goodsId === goodsId) n += +l.qty || 0; }); });
+    return n;
+  };
+  S.overQuota = function (items, dept, exceptId) {
+    var sum = {};
+    (items || []).forEach(function (l) { if (!l.goodsId) return; sum[l.goodsId] = (sum[l.goodsId] || 0) + (+l.qty || 0); });
+    return Object.keys(sum).some(function (id) {
+      var g = S.get('goods', id);
+      if (!g || !(+g.quota > 0)) return false;
+      var used = dept ? S.quotaUsed(dept, id, exceptId) : 0;
+      return used + sum[id] > +g.quota;
+    });
+  };
+  S.changeRatio = function (proj, amount, exceptId) {
+    var base = +proj.contractAmt || 0;
+    var passed = S.where('chg', function (c) {
+      if (!proj || c.projId !== proj.id || c.id === exceptId) return false;
+      if (c.status === '已驳回' || c.status === '已撤回') return false;
+      return c.status === '已通过' || /审批中/.test(c.status || '');
+    }).reduce(function (s, c) { return s + (+c.amount || 0); }, 0);
+    var total = passed + (+amount || 0);
+    return { passed: passed, total: total, ratio: base ? total / base : 0, contract: base };
+  };
+  function limitMin(label) {
+    var m = String(label || '').match(/(\d+)\s*(小时|分钟)/);
+    if (!m) return 30;
+    return m[2] === '小时' ? (+m[1]) * 60 : +m[1];
+  }
+  function feeOr(v, fallback) {
+    if (v == null || String(v).trim() === '') return fallback;
+    var n = +v;
+    if (!isFinite(n) || n < 0) err('金额必须是非负数字');
+    return u.money(n);
+  }
   S.fillItems = function (items) { return (items || []).map(function (l) { var g = S.get('goods', l.goodsId) || {}; return { goodsId: l.goodsId, name: g.name, spec: g.spec, unit: g.unit, price: +l.price || g.price, qty: +l.qty, supplierId: g.supplierId, consign: g.consign }; }); };
 
   /* ---------- 报修工单 ---------- */
   var REJ = ['信息不完整，请补充具体房间号', '非后勤维修范围（如个人电器）', '重复报修，已合并处理', '报修人联系不上', '其他'];
   function W(k, o) { o.ent = o.ent || 'wo'; A[k] = o; }
-  W('wo.audit', { label: '审核派单', when: function (r) { return r.status === '待审核'; }, form: function (r) { return [{ k: 'staffId', l: '维修人员', t: 'sel', req: true, opts: S.OPTS.staffFor(r), def: S.recommend(r), full: true, help: '按技能匹配、同校区、在岗状态与当前负荷综合排序' }, { k: 'limit', l: '接单时限', t: 'sel', opts: ['15 分钟', '30 分钟', '1 小时', '2 小时'], def: r.urgency === '普通' ? '30 分钟' : '15 分钟' }, { k: 'urgency', l: '紧急程度', t: 'sel', opts: ['普通', '紧急', '特急'], def: r.urgency }, { k: 'note', l: '派单说明', t: 'ta', full: true, ph: '可填写注意事项' }]; }, run: function (r, d) { r.urgency = d.urgency || r.urgency; S.tl(r, '审核通过', '信息完整'); var s = S.assign(r, d.staffId, '人工派单', '接单时限 ' + d.limit + (d.note ? '；' + d.note : '')); return '已派单给 ' + s.name; } });
+  W('wo.audit', { label: '审核派单', when: function (r) { return r.status === '待审核'; }, form: function (r) { return [{ k: 'staffId', l: '维修人员', t: 'sel', req: true, opts: S.OPTS.staffFor(r), def: S.recommend(r), full: true, help: '按技能匹配、同校区、在岗状态与当前负荷综合排序' }, { k: 'limit', l: '接单时限', t: 'sel', opts: ['15 分钟', '30 分钟', '1 小时', '2 小时'], def: r.urgency === '普通' ? '30 分钟' : '15 分钟' }, { k: 'urgency', l: '紧急程度', t: 'sel', opts: ['普通', '紧急', '特急'], def: r.urgency }, { k: 'note', l: '派单说明', t: 'ta', full: true, ph: '可填写注意事项' }]; }, run: function (r, d) { r.urgency = d.urgency || r.urgency; r.limitMin = limitMin(d.limit); r.acceptDue = u.fmt(Date.now() + r.limitMin * 60000); S.tl(r, '审核通过', '信息完整'); var s = S.assign(r, d.staffId, '人工派单', '接单时限 ' + d.limit + '，截止 ' + r.acceptDue + (d.note ? '；' + d.note : '')); return '已派单给 ' + s.name; } });
   W('wo.pool', { label: '放入抢单池', when: function (r) { return r.status === '待审核'; }, confirm: '审核通过并放入抢单池，附近维修人员可抢单？', run: function (r) { r.status = '待接单'; r.pool = true; r.dispatchAt = now(); S.tl(r, '审核通过', '放入抢单池'); S.notify('repairman', '抢单池新增工单', r.campus + ' ' + r.loc + '：' + r.desc, 'mobile/repairman/home.html?tab=抢单池'); return '已放入抢单池'; } });
   W('wo.reject', { label: '退回', danger: true, when: function (r) { return r.status === '待审核'; }, form: [{ k: 'reason', l: '退回原因', t: 'sel', opts: REJ, req: true, full: true }, { k: 'note', l: '补充说明', t: 'ta', full: true }], run: function (r, d) { r.status = '已退回'; r.rejectReason = d.reason; S.tl(r, '退回工单', d.reason + (d.note ? '；' + d.note : '')); if (r.reporterId) S.notify('user', '报修被退回', r.no + '：' + d.reason, 'mobile/user/order-detail.html?id=' + r.id); return '已退回并通知报修人'; } });
   W('wo.merge', { label: '合并重复', when: function (r) { return r.status === '待审核'; }, form: function (r) { var o = S.where('wo', function (w) { return w.id !== r.id && !isClosed(w) && (w.building === r.building || w.cat === r.cat); }).slice(0, 30).map(function (w) { return { v: w.id, l: w.no + ' ' + w.loc + ' ' + w.cat + ' · ' + w.status }; }); return [{ k: 'target', l: '合并到工单', t: 'sel', opts: o, req: true, full: true, help: '同楼栋或同类故障的未完结工单' }, { k: 'note', l: '说明', t: 'ta', full: true }]; }, run: function (r, d) { var t = S.get('wo', d.target); r.status = '已合并'; r.mergedTo = t.no; S.tl(r, '合并重复工单', '已合并至 ' + t.no); S.tl(t, '合并工单', '合并了重复工单 ' + r.no); return '已合并至 ' + t.no; } });
@@ -1795,8 +1953,9 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     if (!r.checkinAt) err('请先完成到场签到');
     var overtime = !!d.overtime || !!r.overtime;
     if (r.repairStart && u.parse(d.t || now()) - u.parse(r.repairStart) > 4 * 3600000) overtime = true;
-    S.woNode(r, { type: '完工提交', t: d.t, offline: !!d.offline, gps: d.gps, photos: d.after || [], note: (d.result || '') + '；人工费 ' + (+d.labor || 50) + ' 元', overtime: overtime });
-    r.cause = d.cause; r.result = d.result; r.afterPhotos = d.after || []; if (d.before && d.before.length) r.beforePhotos = d.before; r.labor = +d.labor || 50; r.sign = d.sign || ''; r.cost = u.money(r.labor + (r.matCost || 0)); r.finishAt = d.t || now(); r.leaveAt = r.finishAt; r.stayMin = Math.max(1, Math.round((u.parse(r.leaveAt) - u.parse(r.checkinAt)) / 60000)); r.status = '待验收';
+    var labor = feeOr(d.labor, 50);
+    S.woNode(r, { type: '完工提交', t: d.t, offline: !!d.offline, gps: d.gps, photos: d.after || [], note: (d.result || '') + '；人工费 ' + labor + ' 元', overtime: overtime });
+    r.cause = d.cause; r.result = d.result; r.afterPhotos = d.after || []; if (d.before && d.before.length) r.beforePhotos = d.before; r.labor = labor; r.sign = d.sign || ''; r.cost = u.money(r.labor + (r.matCost || 0)); r.finishAt = d.t || now(); r.leaveAt = r.finishAt; r.stayMin = Math.max(1, Math.round((u.parse(r.leaveAt) - u.parse(r.checkinAt)) / 60000)); r.status = '待验收';
     if (r.excId) { var e = S.get('exc', r.excId); if (e && e.status === '维修中') { e.status = '待复查'; e.result = '报修工单 ' + r.no + ' 已完工：' + d.result; e.resultPhotos = r.afterPhotos; S.tl(e, '维修完工', e.result); S.notify('inspector', '异常待复查', e.pointName + '：请扫码到场复查', 'mobile/inspector/recheck.html'); } }
     return d.offline ? '完工已按现场时间离线补传，请报修人验收' : '已提交完工，节点已回传，等待报修人验收';
   } });
@@ -1856,12 +2015,12 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   /* ---------- 服务监督 ---------- */
   A['stask.change'] = { ent: 'stask', label: '申请变更', when: function (r) { return r.status === '待执行'; }, form: [{ k: 'date', l: '变更日期', t: 'date', req: true }, { k: 'reason', l: '变更原因', t: 'ta', req: true, full: true }], run: function (r, d) { r.prevStatus = r.status; r.status = '变更审批中'; r.change = { date: d.date, reason: d.reason }; var ap = S.startAp('task', { ent: 'stask', refId: r.id, refNo: r.no, title: r.name + ' 任务变更', ctx: { dept: 'leader' }, summary: [['任务', r.name], ['原日期', r.date], ['变更为', d.date], ['原因', d.reason]] }); r.apId = ap.id; S.tl(r, '申请任务变更', d.reason); return '变更申请已提交至监督科负责人'; } };
   A['stask.cancel'] = { ent: 'stask', label: '取消', danger: true, when: function (r) { return r.status === '待执行'; }, confirm: '确认取消该监督任务？', run: function (r) { r.status = '已取消'; return '已取消'; } };
-  A['rect.accept'] = { ent: 'rect', label: '接收整改', when: function (r) { return r.status === '待整改'; }, run: function (r) { r.status = '整改中'; r.acceptAt = now(); S.tl(r, '接收整改', '已安排人员处理'); return '已接收，请在期限内完成整改'; } };
-  A['rect.submit'] = { ent: 'rect', label: '提交整改', when: function (r) { return r.status === '整改中' || r.status === '待整改'; }, form: [{ k: 'measure', l: '整改措施', t: 'ta', req: true, full: true }, { k: 'after', l: '整改后照片', t: 'upl', req: true, full: true }], run: function (r, d) { r.status = '待复查'; r.measure = d.measure; r.after = d.after; r.doneAt = now(); r.overdue = false; S.tl(r, '提交整改结果', d.measure); S.notify('supervisor', '整改待复查', r.unit + ' 已提交整改：' + r.issue, 'mobile/supervisor/recheck.html'); return '已提交，等待监督员复查'; } };
+  A['rect.accept'] = { ent: 'rect', label: '接收整改', when: function (r) { return r.status === '待整改' && S.centerOwn(r); }, run: function (r) { if (!S.centerOwn(r)) err('不能处理其他中心的整改单'); r.status = '整改中'; r.acceptAt = now(); S.tl(r, '接收整改', '已安排人员处理'); return '已接收，请在期限内完成整改'; } };
+  A['rect.submit'] = { ent: 'rect', label: '提交整改', when: function (r) { return (r.status === '整改中' || r.status === '待整改') && S.centerOwn(r); }, form: [{ k: 'measure', l: '整改措施', t: 'ta', req: true, full: true }, { k: 'after', l: '整改后照片', t: 'upl', req: true, full: true }], run: function (r, d) { if (!S.centerOwn(r)) err('不能处理其他中心的整改单'); r.status = '待复查'; r.measure = d.measure; r.after = d.after; r.doneAt = now(); r.overdue = false; S.tl(r, '提交整改结果', d.measure); S.notify('supervisor', '整改待复查', r.unit + ' 已提交整改：' + r.issue, 'mobile/supervisor/recheck.html'); return '已提交，等待监督员复查'; } };
   A['rect.recheck'] = { ent: 'rect', label: '复查', when: function (r) { return r.status === '待复查'; }, form: [{ k: 'res', l: '复查结果', t: 'radio', opts: ['通过', '不通过'], req: true, def: '通过', full: true }, { k: 'photos', l: '复查照片', t: 'upl', full: true }, { k: 'note', l: '复查意见', t: 'ta', full: true, req: "f.res=='不通过'" }], run: function (r, d) { r.recheck = { result: d.res, note: d.note, photos: d.photos, time: now() }; if (d.res === '通过') { r.status = '已闭环'; S.tl(r, '复查通过', d.note || '整改到位'); if (r.coId) S.notify('third', '整改已闭环', r.issue, 'pc/third-party/tasks.html?tab=整改单', r.coId); return '复查通过，整改单已闭环'; } r.status = '整改中'; S.tl(r, '复查不通过', d.note); if (r.coId) S.notify('third', '整改复查不通过', r.issue + '：' + d.note, 'pc/third-party/tasks.html?tab=整改单', r.coId); return '复查不通过，已退回责任单位'; } };
   A['rect.urge'] = { ent: 'rect', label: '督办', when: function (r) { return r.status !== '已闭环'; }, form: [{ k: 'note', l: '督办要求', t: 'ta', req: true, full: true, def: '请于今日下班前完成整改并上传整改照片' }], run: function (r, d) { r.urge = (r.urge || 0) + 1; S.tl(r, '督办', d.note); if (r.coId) S.notify('third', '整改督办', r.issue + '：' + d.note, 'pc/third-party/tasks.html?tab=整改单', r.coId); else S.notify('center', '整改督办', r.issue, 'pc/center/rectification.html'); return '已督办'; } };
-  A['cpl.assign'] = { ent: 'cpl', label: '分派', when: function (r) { return r.status === '待分派' || r.status === '已升级'; }, form: [{ k: 'unit', l: '处理单位', t: 'sel', opts: S.OPTS.unit, req: true, full: true }, { k: 'deadline', l: '处理期限', t: 'datetime', req: true, def: function () { return u.after(1); } }, { k: 'note', l: '处理要求', t: 'ta', full: true }], run: function (r, d) { var p = d.unit.split(':'); r.unitType = p[0]; if (p[0] === 'co') { var c = S.get('co', p[1]); r.coId = c.id; r.unit = c.name; S.notify('third', '新投诉待处理', r.content, 'pc/third-party/tasks.html?tab=投诉处理', c.id); } else { r.coId = ''; r.unit = p[1]; S.notify('center', '新投诉待处理', r.content, 'mobile/center/home.html'); } r.deadline = d.deadline; r.status = '处理中'; S.tl(r, '分派处理', '分派至 ' + r.unit + '，期限 ' + d.deadline + (d.note ? '；' + d.note : '')); return '已分派至 ' + r.unit; } };
-  A['cpl.handle'] = { ent: 'cpl', label: '提交处理结果', when: function (r) { return r.status === '处理中'; }, form: [{ k: 'result', l: '处理结果', t: 'ta', req: true, full: true }, { k: 'photos', l: '处理照片', t: 'upl', full: true }], run: function (r, d) { r.status = '待回访'; r.result = d.result; r.resultPhotos = d.photos; S.tl(r, '提交处理结果', d.result); S.notify('supervisor', '投诉待回访', r.unit + ' 已处理：' + r.content, 'pc/supervisor/complaints.html?tab=待回访'); return '已提交，等待监督员回访'; } };
+  A['cpl.assign'] = { ent: 'cpl', label: '分派', when: function (r) { return r.status === '待分派' || r.status === '已升级'; }, form: [{ k: 'unit', l: '处理单位', t: 'sel', opts: S.OPTS.unit, req: true, full: true }, { k: 'deadline', l: '处理期限', t: 'datetime', req: true, def: function () { return u.after(1); } }, { k: 'note', l: '处理要求', t: 'ta', full: true }], run: function (r, d) { var p = d.unit.split(':'); r.unitType = p[0]; if (p[0] === 'co') { var c = S.get('co', p[1]); r.coId = c.id; r.unit = c.name; S.notify('third', '新投诉待处理', r.content, 'pc/third-party/tasks.html?tab=投诉处理', c.id); } else { r.coId = ''; r.unit = p[1]; r.centerId = p[1]; S.notify('center', '新投诉待处理', r.content, 'mobile/center/home.html'); } r.deadline = d.deadline; r.status = '处理中'; S.tl(r, '分派处理', '分派至 ' + r.unit + '，期限 ' + d.deadline + (d.note ? '；' + d.note : '')); return '已分派至 ' + r.unit; } };
+  A['cpl.handle'] = { ent: 'cpl', label: '提交处理结果', when: function (r) { return r.status === '处理中' && S.centerOwn(r); }, form: [{ k: 'result', l: '处理结果', t: 'ta', req: true, full: true }, { k: 'photos', l: '处理照片', t: 'upl', full: true }], run: function (r, d) { if (!S.centerOwn(r)) err('不能处理其他中心的投诉'); r.status = '待回访'; r.result = d.result; r.resultPhotos = d.photos; S.tl(r, '提交处理结果', d.result); S.notify('supervisor', '投诉待回访', r.unit + ' 已处理：' + r.content, 'pc/supervisor/complaints.html?tab=待回访'); return '已提交，等待监督员回访'; } };
   A['cpl.visit'] = { ent: 'cpl', label: '回访', when: function (r) { return r.status === '待回访'; }, form: [{ k: 'sat', l: '投诉人满意度', t: 'radio', opts: ['满意', '基本满意', '不满意'], req: true, full: true }, { k: 'note', l: '回访记录', t: 'ta', full: true }], run: function (r, d) { r.sat = d.sat; if (d.sat === '不满意') { r.status = '已升级'; S.tl(r, '回访不满意，升级督办', d.note); S.notify('leader', '投诉升级督办', r.content, 'pc/leader/cockpit.html'); return '投诉人不满意，已升级督办'; } r.status = '已办结'; S.tl(r, '回访办结', '投诉人' + d.sat + (d.note ? '：' + d.note : '')); return '投诉已办结'; } };
   A['co.suspend'] = { ent: 'co', label: '暂停合作', danger: true, when: function (r) { return r.status === '已准入'; }, form: [{ k: 'reason', l: '暂停原因', t: 'ta', req: true, full: true, def: '连续两次考核不合格' }], run: function (r, d) { r.status = '已暂停'; r.suspendReason = d.reason; S.notify('third', '合作已暂停', d.reason, 'pc/third-party/evaluation.html', r.id); return '已暂停合作'; } };
   A['co.resume'] = { ent: 'co', label: '恢复合作', when: function (r) { return r.status === '已暂停'; }, confirm: '确认恢复与该单位的合作？', run: function (r) { r.status = '已准入'; return '已恢复'; } };
@@ -1884,8 +2043,9 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   S.reRank = function () { S.where('proj', function (p) { return p.status === '项目库'; }).sort(function (a, b) { return (a.manual || 0) - (b.manual || 0) || b.score - a.score; }).forEach(function (p, k) { p.rank = k + 1; }); };
   A['proj.compare'] = { ent: 'proj', label: '基建比对', run: function (r) { var dup = /热水|外墙|配电/.test(r.name) && Math.random() > 0.4; r.infra = dup ? '疑似重复：基建处“' + r.campus + r.type + '综合改造”' : '无重复'; S.tl(r, '基建项目库比对', r.infra); return dup ? '发现疑似重复项目，请人工核实' : '比对完成：基建项目库中无重复项目'; } };
   A['proj.submit'] = { ent: 'proj', label: '提交立项', when: function (r) { return r.status === '项目库' || r.status === '已驳回'; }, form: function (r) { return [{ k: 'budget', l: '预算金额（元）', t: 'money', req: true, def: r.budget }, { k: 'dept', l: '申报部门', t: 'sel', opts: B.centers, req: true, def: r.dept }, { k: 'contact', l: '联系人', t: 'text', req: true, def: r.contact || B.me.project.name }, { k: 'phone', l: '联系电话', t: 'phone', req: true, def: r.phone || B.me.project.phone }, { k: 'content', l: '施工内容', t: 'ta', req: true, full: true, def: r.content }, { k: 'files', l: '附件（预算书、勘察报告）', t: 'files', full: true, req: true }]; }, run: function (r, d) {
-    Object.assign(r, { budget: +d.budget, dept: d.dept, contact: d.contact, phone: d.phone, content: d.content, files: d.files }); r.status = '立项审批中'; r.stage = 2;
-    var ap = S.startAp('budget', { ent: 'proj', refId: r.id, refNo: r.no, title: r.name + ' 立项预算', amount: r.budget, summary: [['项目名称', r.name], ['申报部门', r.dept], ['预算金额', r.budget + ' 元'], ['项目类型', r.type]] });
+    Object.assign(r, { budget: +d.budget, dept: d.dept, contact: d.contact, phone: d.phone, content: d.content, files: d.files });
+    var ap = S.startAp('budget', { ent: 'proj', refId: r.id, refNo: r.no, title: r.name + ' 立项预算', amount: +d.budget, summary: [['项目名称', r.name], ['申报部门', d.dept], ['预算金额', d.budget + ' 元'], ['项目类型', r.type]] });
+    r.status = '立项审批中'; r.stage = 2;
     r.apId = ap.id; S.tl(r, '提交立项申请', '预算 ' + r.budget + ' 元，审批节点 ' + ap.nodes.length + ' 级'); S.reRank(); return '已提交立项审批（' + ap.nodes.map(function (n) { return n.name; }).join(' → ') + '）';
   } };
   A['proj.withdraw'] = { ent: 'proj', label: '撤回', when: function (r) { return r.status === '立项审批中'; }, confirm: '撤回立项申请？撤回后项目回到项目库。', run: function (r) { S.withdraw(r.apId); return '已撤回'; } };
@@ -1906,16 +2066,16 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     r.apId = ap.id; r.status = '会签中'; S.tl(r, '现场验收', '全部 ' + r.items.length + ' 项合格，发起在线会签'); return '验收合格，已发起监理、使用单位、后勤保障部会签';
   } };
   A['acc.handover'] = { ent: 'acc', label: '资产移交', when: function (r) { return r.status === '已通过' && !r.handover; }, form: function (r) { var p = S.get('proj', r.projId) || {}; return [{ k: 'asset', l: '资产名称', t: 'text', req: true, full: true, def: r.projName }, { k: 'unit', l: '接收单位', t: 'sel', opts: S.B.centers.concat(['国有资产处']), req: true, def: p.dept || '国有资产处' }, { k: 'value', l: '资产原值（元）', t: 'money', req: true, def: p.contractAmt || p.budget || 0 }, { k: 'place', l: '存放地点', t: 'text', req: true, full: true, def: (p.campus || '') + ' ' + (p.building || '') }, { k: 'note', l: '移交说明', t: 'ta', full: true, def: '竣工验收已通过，固定资产移交接收单位入账。' }]; }, run: function (r, d) { r.handover = { no: 'YJ' + u.today().replace(/-/g, '') + u.ri(10, 99), at: now(), asset: d.asset, unit: d.unit, value: +d.value, place: d.place, note: d.note, by: S.who() }; S.tl(r, '资产移交', r.handover.no + ' → ' + d.unit + '，原值 ' + d.value + ' 元'); var p = S.get('proj', r.projId); if (p) { p.docs = p.docs || {}; p.docs['资产移交单'] = true; S.tl(p, '资产移交', r.handover.no); } S.notify('finance', '资产移交待入账', r.projName + ' 移交 ' + d.unit, 'pc/finance/audit.html'); return '已生成移交单 ' + r.handover.no + '，已通知财务与接收单位'; } };
-  A['psettle.submit'] = { ent: 'psettle', label: '提交结算', when: function (r) { return r.status === '待提交' || r.status === '已退回'; }, form: function (r) { return [{ k: 'submitAmt', l: '送审金额（元）', t: 'money', req: true, def: r.contractAmt + (r.changeAmt || 0), help: '合同金额 ' + r.contractAmt + ' 元 + 变更 ' + (r.changeAmt || 0) + ' 元' }, { k: 'invoice', l: '发票号', t: 'text', req: true, def: 'FP' + u.ri(10000000, 99999999) }, { k: 'node', l: '付款节点', t: 'sel', opts: ['结算款（27%）', '进度款（40%）', '质保金（3%）'], def: '结算款（27%）' }, { k: 'files', l: '结算资料', t: 'files', full: true, req: true, def: ['结算书.pdf', '工程量确认单.pdf'] }]; }, run: function (r, d) {
-    r.submitAmt = +d.submitAmt; r.invoice = d.invoice; r.files = d.files; r.status = '审批中';
-    var ap = S.startAp('psettle', { ent: 'psettle', refId: r.id, refNo: r.no, title: r.projName + ' 结算', amount: r.submitAmt, summary: [['项目', r.projName], ['合同金额', r.contractAmt + ' 元'], ['送审金额', r.submitAmt + ' 元'], ['发票号', r.invoice]] });
-    r.apId = ap.id; S.tl(r, '提交结算', '送审 ' + r.submitAmt + ' 元'); var p = S.get('proj', r.projId); if (p) { p.docs['结算书'] = true; S.tl(p, '提交结算', '送审 ' + r.submitAmt + ' 元'); } return '已提交结算审批';
+  A['psettle.submit'] = { ent: 'psettle', label: '提交结算', when: function (r) { return r.status === '待提交' || r.status === '已退回'; }, form: function (r) { var c = S.find('contract', function (x) { return x.projId === r.projId && x.status !== '已驳回'; }); var opts = (c && c.payNodes || []).filter(function (n) { return n.status !== '已支付'; }).map(function (n) { return { v: n.name, l: n.name + ' ' + n.pct + '% · 本次 ' + Math.round(c.amount * n.pct) / 100 + ' 元' }; }); if (!opts.length) opts = [{ v: '结算款', l: '结算款（按送审金额）' }]; return [{ k: 'submitAmt', l: '送审金额（元）', t: 'money', req: true, def: r.contractAmt + (r.changeAmt || 0), help: '合同金额 ' + r.contractAmt + ' 元 + 变更 ' + (r.changeAmt || 0) + ' 元。送审额与本次节点付款额分开核算。' }, { k: 'invoice', l: '发票号', t: 'text', req: true, def: 'FP' + u.ri(10000000, 99999999) }, { k: 'node', l: '付款节点', t: 'sel', opts: opts, req: true, def: (opts[0] || {}).v }, { k: 'files', l: '结算资料', t: 'files', full: true, req: true, def: ['结算书.pdf', '工程量确认单.pdf'] }]; }, run: function (r, d) {
+    r.submitAmt = +d.submitAmt; r.invoice = d.invoice; r.files = d.files; r.node = d.node;
+    var ap = S.startAp('psettle', { ent: 'psettle', refId: r.id, refNo: r.no, title: r.projName + ' ' + (d.node || '结算'), amount: r.submitAmt, summary: [['项目', r.projName], ['合同金额', r.contractAmt + ' 元'], ['送审金额', r.submitAmt + ' 元'], ['付款节点', d.node || '—'], ['发票号', r.invoice]] });
+    r.status = '审批中'; r.apId = ap.id; S.tl(r, '提交结算', '送审 ' + r.submitAmt + ' 元，节点 ' + (d.node || '结算款')); var p = S.get('proj', r.projId); if (p) { p.docs['结算书'] = true; S.tl(p, '提交结算', '送审 ' + r.submitAmt + ' 元'); } return '已提交结算审批';
   } };
 
   /* ---------- 物资 ---------- */
   A['demand.merge'] = { ent: 'demand', label: '纳入计划', when: function (r) { return r.status === '待汇总'; }, run: function (r) { r.status = '已纳入计划'; return '已纳入采购计划'; } };
   A['demand.cancel'] = { ent: 'demand', label: '撤回', danger: true, when: function (r) { return r.status === '待汇总'; }, confirm: '撤回这条物资需求？', run: function (r) { r.status = '已撤回'; S.tl(r, '撤回需求', ''); return '已撤回'; } };
-  A['pplan.submit'] = { ent: 'pplan', label: '提交审批', when: function (r) { return r.status === '草稿' || r.status === '已驳回'; }, confirm: function (r) { return '提交「' + r.title + '」（' + r.amount + ' 元）进入审批？' + (r.amount > 50000 ? '金额超过 5 万元，将增加分管领导审批。' : ''); }, run: function (r) { if (!r.items.length) err('采购计划没有物资明细'); r.status = '审批中'; var ap = S.startAp('purchase', { ent: 'pplan', refId: r.id, refNo: r.no, title: r.title, amount: r.amount, summary: [['计划名称', r.title], ['物资品类', r.items.length + ' 项'], ['预估金额', r.amount + ' 元'], ['来源', r.source]] }); r.apId = ap.id; S.tl(r, '提交审批', ap.nodes.map(function (n) { return n.name; }).join(' → ')); return '已提交审批'; } };
+  A['pplan.submit'] = { ent: 'pplan', label: '提交审批', when: function (r) { return r.status === '草稿' || r.status === '已驳回'; }, confirm: function (r) { return '提交「' + r.title + '」（' + r.amount + ' 元）进入审批？' + (r.amount > 50000 ? '金额超过 5 万元，将增加分管领导审批。' : ''); }, run: function (r) { if (!r.items.length) err('采购计划没有物资明细'); var ap = S.startAp('purchase', { ent: 'pplan', refId: r.id, refNo: r.no, title: r.title, amount: r.amount, summary: [['计划名称', r.title], ['物资品类', r.items.length + ' 项'], ['预估金额', r.amount + ' 元'], ['来源', r.source]] }); r.status = '审批中'; r.apId = ap.id; S.tl(r, '提交审批', ap.nodes.map(function (n) { return n.name; }).join(' → ')); return '已提交审批'; } };
   A['pplan.withdraw'] = { ent: 'pplan', label: '撤回', when: function (r) { return r.status === '审批中'; }, confirm: '撤回该采购计划？', run: function (r) { S.withdraw(r.apId); return '已撤回为草稿'; } };
   A['pplan.order'] = { ent: 'pplan', label: '生成采购单', when: function (r) { return r.status === '已审批'; }, form: function (r) { return [{ k: 'whId', l: '收货仓库', t: 'sel', opts: S.OPTS.wh(), req: true, def: r.whId }, { k: 'deliverDate', l: '要求到货日期', t: 'date', req: true, def: u.day(3) }]; }, run: function (r, d) {
     var by = {}; r.items.forEach(function (l) { var g = S.get('goods', l.goodsId); (by[g.supplierId] = by[g.supplierId] || []).push(l); }); var nos = [];
@@ -1926,13 +2086,39 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   A['pur.cancel'] = { ent: 'pur', label: '取消', danger: true, when: function (r) { return r.status === '待认领'; }, form: [{ k: 'reason', l: '取消原因', t: 'ta', req: true, full: true }], run: function (r, d) { r.status = '已取消'; S.tl(r, '取消采购单', d.reason); return '已取消'; } };
   A['pur.claim'] = { ent: 'pur', label: '认领', when: function (r) { return r.status === '待认领'; }, confirm: function (r) { return '认领采购单 ' + r.no + '，承诺 ' + r.deliverDate + ' 前送达 ' + r.whName + '？'; }, run: function (r) { r.status = '待送货'; S.tl(r, '认领采购单', '承诺 ' + r.deliverDate + ' 前送达'); S.notify('material', '采购单已认领', r.supplier + ' 已认领 ' + r.no, 'pc/material/purchase-orders.html?id=' + r.id); return '认领成功，请按时送货'; } };
   A['pur.deliver'] = { ent: 'pur', label: '录入供货', when: function (r) { return r.status === '待送货'; }, run: function (r, d) { r.items.forEach(function (l, i) { l.real = +d.qty[i]; }); r.batch = d.batch; r.deliverAt = d.time; r.driver = d.driver; r.status = '配送中'; S.tl(r, '录入供货', '批次 ' + d.batch + '，' + r.items.map(function (l) { return l.name + ' × ' + l.real; }).join('、')); S.notify('warehouse', '到货提醒', r.supplier + ' 的 ' + r.no + ' 已发货', 'mobile/warehouse/receive.html'); return '供货信息已提交，仓库将扫码收验货'; } };
-  A['pur.receive'] = { ent: 'pur', label: '收验货', when: function (r) { return r.status === '配送中'; }, run: function (r, d) {
-    var rows = r.items.map(function (l, i) { return Object.assign({}, l, { real: d.ok[i] ? +d.qty[i] : 0 }); }); var rej = r.items.filter(function (l, i) { return !d.ok[i]; });
-    if (!rows.some(function (l) { return l.real > 0; })) { r.status = '已拒收'; S.tl(r, '拒收', d.note || '验收不合格'); S.notify('third', '货物被拒收', r.no + '：' + (d.note || ''), 'mobile/supplier/home.html', r.supplierId); return '已全部拒收'; }
-    S.stockIn(r.whId, rows, r.batch); var s = S.add('sin', { purId: r.id, purNo: r.no, whId: r.whId, whName: r.whName, supplierId: r.supplierId, supplier: r.supplier, items: rows.filter(function (l) { return l.real > 0; }).map(function (l) { return Object.assign({}, l, { qty: l.real }); }), amount: u.money(rows.reduce(function (t, l) { return t + l.real * l.price; }, 0)), type: '寄售入库', batch: r.batch, status: '已入库', checker: S.who(), time: now(), weight: d.weight || '' }, { noTl: true });
-    r.status = rej.length ? '部分拒收' : '已入库'; r.sinNo = s.no; S.tl(r, '收验货入库', '入库单 ' + s.no + (rej.length ? '；拒收：' + rej.map(function (l) { return l.name; }).join('、') : '；验收合格'));
-    S.notify('material', '采购单已入库', r.no + ' → ' + s.no, 'pc/material/inbound.html'); S.notify('third', '货物已验收入库', r.no, 'mobile/supplier/home.html', r.supplierId); return '已入库，生成入库单 ' + s.no;
+  A['pur.receive'] = { ent: 'pur', label: '收验货', when: function (r) { return r.status === '配送中' || r.status === '部分入库'; }, run: function (r, d) {
+    var inbound = [], any = false, pending = false, rejectedAll = true;
+    r.items.forEach(function (l, i) {
+      l.ordered = l.ordered || +l.qty;
+      var open = Math.max(0, l.ordered - (+l.received || 0));
+      if (!open) { if ((+l.received || 0) < l.ordered) pending = true; return; }
+      var ship = Math.min(open, +((l.real != null && +l.real > 0) ? l.real : open));
+      var accept = d.ok[i] ? Math.min(ship, Math.max(0, +d.qty[i] || 0)) : 0;
+      var reject = d.ok[i] ? Math.max(0, ship - accept) : ship;
+      if (accept > 0) { any = true; rejectedAll = false; l.received = (+l.received || 0) + accept; inbound.push(Object.assign({}, l, { qty: accept, real: accept })); }
+      l.rejected = (+l.rejected || 0) + reject;
+      l.delivered = (+l.delivered || 0) + ship;
+      l.pending = Math.max(0, l.ordered - (+l.received || 0));
+      if (l.pending > 0) pending = true;
+      if (accept > 0 || l.pending > 0) rejectedAll = false;
+    });
+    if (!any) {
+      r.status = '待补送';
+      S.tl(r, '全部拒收', (d.note || '验收不合格') + '。可重新送货或终止，已收数量不变');
+      S.notify('third', '货物被拒收', r.no + '：' + (d.note || '请重新送货或等待终止'), 'mobile/supplier/home.html', r.supplierId);
+      return '已全部拒收，采购单改为待补送';
+    }
+    S.stockIn(r.whId, inbound, r.batch);
+    var s = S.add('sin', { purId: r.id, purNo: r.no, whId: r.whId, whName: r.whName, supplierId: r.supplierId, supplier: r.supplier, items: inbound, amount: u.money(inbound.reduce(function (t, l) { return t + l.qty * l.price; }, 0)), type: '寄售入库', batch: r.batch, status: '已入库', checker: S.who(), time: now(), weight: d.weight || '' }, { noTl: true });
+    r.sins = (r.sins || []).concat([s.no]); r.sinNo = s.no;
+    r.status = pending ? '部分入库' : '已入库';
+    S.tl(r, pending ? '部分入库' : '收验货入库', '入库单 ' + s.no + '，本次 ' + inbound.map(function (l) { return l.name + ' × ' + l.qty; }).join('、') + (pending ? '；仍有待补数量' : ''));
+    S.notify('material', '采购单已入库', r.no + ' → ' + s.no, 'pc/material/inbound.html');
+    S.notify('third', pending ? '部分验收入库' : '货物已验收入库', r.no, 'mobile/supplier/home.html', r.supplierId);
+    return pending ? '已入库 ' + s.no + '，剩余数量可继续收货' : '已入库，生成入库单 ' + s.no;
   } };
+  A['pur.resend'] = { ent: 'pur', label: '重新送货', when: function (r) { return r.status === '待补送' || r.status === '部分入库'; }, confirm: '通知供应商按未收数量重新送货？', run: function (r) { r.items.forEach(function (l) { var open = Math.max(0, (l.ordered || l.qty) - (+l.received || 0)); l.real = open; }); r.status = '待送货'; S.tl(r, '安排补送', '未收数量可重新送货'); S.notify('third', '请重新送货', r.no + ' 仍有未收数量', 'mobile/supplier/orders.html', r.supplierId); return '已改为待送货'; } };
+  A['pur.stop'] = { ent: 'pur', label: '终止剩余', danger: true, when: function (r) { return r.status === '待补送' || r.status === '部分入库'; }, form: [{ k: 'reason', l: '终止原因', t: 'ta', req: true, full: true }], run: function (r, d) { r.status = (+r.items.reduce(function (s, l) { return s + (+l.received || 0); }, 0) > 0) ? '已入库' : '已终止'; r.items.forEach(function (l) { l.pending = 0; }); S.tl(r, '终止剩余收货', d.reason); return '剩余数量已终止，过程可追溯'; } };
   A['sout.out'] = { ent: 'sout', label: '扫码出库', when: function (r) { return r.status === '待出库'; }, run: function (r) {
     S.stockOut(r.whId, r.items); r.status = '已出库'; r.time = now(); r.operator = S.who(); S.tl(r, '扫码出库', r.items.map(function (l) { return l.name + ' × ' + l.qty; }).join('、'));
     if (r.type === '调拨出库' && r.toWh) { S.stockIn(r.toWh, r.items); S.add('sin', { purId: '', purNo: '调拨 ' + r.no, whId: r.toWh, whName: r.toWhName, supplierId: '', supplier: '调拨自 ' + r.whName, items: r.items, amount: r.amount, type: '调拨入库', batch: '', status: '已入库', checker: S.get('wh', r.toWh).manager, time: now() }, { noTl: true }); return '调拨出库完成，已自动调入 ' + r.toWhName; }
@@ -1942,18 +2128,43 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   A['sout.approveT'] = { ent: 'sout', label: '审批调拨', when: function (r) { return r.status === '待审批' && r.type === '调拨出库'; }, form: [{ k: 'res', l: '审批结果', t: 'radio', opts: ['同意', '驳回'], req: true, def: '同意', full: true }, { k: 'note', l: '审批意见', t: 'ta', full: true }], run: function (r, d) { if (d.res === '同意') { r.status = '待出库'; S.tl(r, '调拨审批通过', d.note); S.notify('warehouse', '调拨待出库', r.no, 'mobile/warehouse/outbound.html'); return '已同意，等待调出仓库出库'; } r.status = '已驳回'; S.tl(r, '调拨审批驳回', d.note); return '已驳回'; } };
   A['inv.safe'] = { ent: 'inv', label: '设置安全库存', form: function (r) { return [{ k: 'safe', l: '安全库存（' + r.unit + '）', t: 'num', req: true, min: 0, def: r.safe }, { k: 'loc', l: '库位', t: 'text', def: r.loc }]; }, run: function (r, d) { r.safe = +d.safe; r.loc = d.loc || r.loc; return '已更新'; } };
   A['stk.submit'] = { ent: 'stk', label: '提交盘点', when: function (r) { return r.status === '盘点中'; }, run: function (r, d) {
-    r.items.forEach(function (it, i) { it.real = d.real[i] == null || d.real[i] === '' ? it.book : +d.real[i]; });
-    var dq = 0, da = 0; r.items.forEach(function (it) { dq += it.real - it.book; da += (it.real - it.book) * it.price; }); r.diffQty = dq; r.diffAmt = u.money(da); r.operator = S.who();
+    r.items.forEach(function (it, i) { it.real = d.real[i] == null || d.real[i] === '' ? it.book : +d.real[i]; var iv = S.get('inv', it.invId); it.snapQty = iv ? +iv.qty : +it.book; });
+    var dq = 0, da = 0; r.items.forEach(function (it) { dq += it.real - it.book; da += (it.real - it.book) * it.price; }); r.diffQty = dq; r.diffAmt = u.money(da); r.operator = S.who(); r.adjusted = false;
     if (!r.items.some(function (it) { return it.real !== it.book; })) { r.status = '已完成'; S.tl(r, '提交盘点', '账实相符，盘点完成'); return '账实相符，盘点完成'; }
-    r.status = '审批中'; var ap = S.startAp('stocktake', { ent: 'stk', refId: r.id, refNo: r.no, title: r.whName + ' 盘点差异审核', amount: Math.abs(r.diffAmt), summary: [['仓库', r.whName], ['盘点方式', r.method], ['差异数量', dq], ['差异金额', r.diffAmt + ' 元']] }); r.apId = ap.id;
+    var ap = S.startAp('stocktake', { ent: 'stk', refId: r.id, refNo: r.no, title: r.whName + ' 盘点差异审核', amount: Math.abs(r.diffAmt), summary: [['仓库', r.whName], ['盘点方式', r.method], ['差异数量', dq], ['差异金额', r.diffAmt + ' 元']] }); r.status = '审批中'; r.apId = ap.id;
     S.tl(r, '提交盘点', '差异 ' + dq + '，金额 ' + r.diffAmt + ' 元，提交审核'); return '存在差异，已提交' + ap.nodes.map(function (n) { return n.name; }).join(' → ');
   } };
   A['recon.adjust'] = { ent: 'recon', label: '调整重提', when: function (r) { return r.status === '有异议' || r.status === '已退回'; }, form: function (r) { return [{ k: 'amount', l: '调整后金额（元）', t: 'money', req: true, def: r.amount }, { k: 'note', l: '调整说明', t: 'ta', req: true, full: true, def: '已核对出库记录，按实际出库数量调整' }]; }, run: function (r, d) { r.amount = +d.amount; r.status = '待供应商确认'; r.objection = ''; var ap = S.startAp('settle', { ent: 'recon', refId: r.id, refNo: r.no, title: r.supplier + ' ' + r.period + ' 对账结算（调整后）', amount: r.amount, ctx: { co: r.supplierId }, summary: [['供应商', r.supplier], ['结算周期', r.period], ['结算金额', r.amount + ' 元'], ['调整说明', d.note]] }); r.apId = ap.id; S.tl(r, '调整重提', d.note); return '已调整并重新推送供应商确认'; } };
-  A['pay.pay'] = { ent: 'pay', label: '登记付款', when: function (r) { return r.status === '待付款'; }, form: function (r) { return [{ k: 'amount', l: '付款金额（元）', t: 'money', req: true, def: r.amount }, { k: 'invoice', l: '发票号', t: 'text', req: true, def: r.invoice }, { k: 'voucher', l: '凭证号', t: 'text', req: true, def: 'PZ' + u.ri(100000, 999999) }, { k: 'account', l: '付款账户', t: 'sel', opts: ['中南大学基本户（建行）', '中南大学专用户（工行）'], def: '中南大学基本户（建行）' }, { k: 'payAt', l: '付款日期', t: 'date', req: true, def: u.today() }]; }, run: function (r, d) {
-    r.status = '已付款'; r.amount = +d.amount; r.invoice = d.invoice; r.voucher = d.voucher; r.account = d.account; r.payAt = d.payAt + ' ' + now().slice(11); r.by = S.who();
-    var ref = S.get(r.refEnt, r.refId); if (ref) { ref.status = '已付款'; S.tl(ref, '付款完成', '凭证 ' + d.voucher + '，金额 ' + d.amount + ' 元'); if (r.refEnt === 'psettle') { ref.auditAmt = r.amount; var p = S.get('proj', ref.projId); if (p) { p.status = '待归档'; p.stage = 7; p.settleAmt = r.amount; p.docs['付款凭证'] = true; S.tl(p, '结算付款完成', '付款 ' + r.amount + ' 元'); S.notify('project', '项目待归档', p.name + ' 已完成付款', 'pc/project/archive.html'); } } }
-    var c = S.find('co', function (x) { return x.name === r.payee; }); if (c) S.notify('third', '付款通知', r.title + ' ' + r.amount + ' 元已支付', 'pc/third-party/reconciliation.html', c.id);
-    S.log('调用财务系统付款接口', r.no, '接口日志'); return '付款已登记，已同步财务系统';
+  A['pay.pay'] = { ent: 'pay', label: '登记付款', when: function (r) { return r.status === '待付款' || r.status === '部分付款'; }, form: function (r) { if (r.approved == null) r.approved = +r.amount; var left = u.money(r.approved - (+r.paid || 0)); return [{ k: 'amount', l: '本次付款（元）', t: 'money', req: true, min: 0.01, def: left, help: '核准应付 ' + r.approved + ' 元，已付 ' + (r.paid || 0) + ' 元，剩余 ' + left + ' 元' }, { k: 'invoice', l: '发票号', t: 'text', req: true, def: r.invoice }, { k: 'voucher', l: '凭证号', t: 'text', req: true, def: 'PZ' + u.ri(100000, 999999) }, { k: 'account', l: '付款账户', t: 'sel', opts: ['中南大学基本户（建行）', '中南大学专用户（工行）'], def: '中南大学基本户（建行）' }, { k: 'payAt', l: '付款日期', t: 'date', req: true, def: u.today() }]; }, run: function (r, d) {
+    if (r.approved == null) r.approved = +r.amount;
+    var amt = +d.amount;
+    if (!isFinite(amt) || amt <= 0) err('请填写付款金额');
+    var paid = +r.paid || 0;
+    if (u.money(paid + amt) > u.money(r.approved) + 0.001) err('超出核准应付 ' + r.approved + ' 元，剩余 ' + u.money(r.approved - paid) + ' 元');
+    r.pays = r.pays || [];
+    if (d.voucher && r.pays.some(function (p) { return p.voucher === d.voucher; })) err('凭证号重复');
+    r.pays.push({ amount: u.money(amt), voucher: d.voucher, invoice: d.invoice, account: d.account, payAt: d.payAt, by: S.who() });
+    r.paid = u.money(paid + amt); r.amount = r.approved; r.invoice = d.invoice || r.invoice; r.voucher = d.voucher; r.account = d.account; r.payAt = d.payAt + ' ' + now().slice(11); r.by = S.who();
+    var done = r.paid + 0.001 >= r.approved; r.status = done ? '已付款' : '部分付款';
+    var ref = S.get(r.refEnt, r.refId);
+    if (ref) {
+      S.tl(ref, done ? '付款完成' : '部分付款', '凭证 ' + d.voucher + '，本次 ' + amt + ' 元，累计 ' + r.paid + ' / 核准 ' + r.approved);
+      if (done) {
+        ref.status = '已付款';
+        if (r.refEnt === 'psettle') {
+          if (!ref.auditAmt) ref.auditAmt = ref.submitAmt;
+          var ct = S.find('contract', function (x) { return x.projId === ref.projId && x.status !== '已驳回'; });
+          var node = ct && (ct.payNodes || []).filter(function (n) { return ref.node && (ref.node === n.name || ref.node.indexOf(n.name) >= 0); })[0];
+          if (node) node.status = '已支付';
+          var allPaid = !ct || !(ct.payNodes || []).some(function (n) { return n.status !== '已支付'; });
+          var p = S.get('proj', ref.projId);
+          if (p && (allPaid || (node && node.name.indexOf('结算') >= 0) || !node)) { p.status = '待归档'; p.stage = 7; p.settleAmt = r.approved; p.docs['付款凭证'] = true; S.tl(p, '结算付款完成', '付款 ' + r.approved + ' 元'); S.notify('project', '项目待归档', p.name + ' 已完成付款', 'pc/project/archive.html'); }
+          else if (p) S.tl(p, '节点付款完成', (node ? node.name : '') + ' ' + r.approved + ' 元');
+        }
+      }
+    }
+    var c = S.find('co', function (x) { return x.name === r.payee; }); if (c) S.notify('third', '付款通知', r.title + ' 本次 ' + amt + ' 元', 'pc/third-party/reconciliation.html', c.id);
+    S.log('调用财务系统付款接口', r.no, '接口日志'); return done ? '已付清，核准额仍为 ' + r.approved + ' 元' : '已登记部分付款，剩余 ' + u.money(r.approved - r.paid) + ' 元';
   } };
 
   /* ---------- 系统管理 ---------- */
@@ -2003,7 +2214,17 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     reject: function (r) { r.status = '需整改'; S.notify('third', '验收会签未通过', r.projName, 'mobile/construction/acceptance.html', r.coId); }
   };
   H.psettle = {
-    done: function (r) { r.status = '待付款'; r.auditAmt = r.submitAmt; var py = S.add('pay', { source: '修缮结算', refEnt: 'psettle', refId: r.id, refNo: r.no, title: r.projName + ' 结算款', payee: r.coName, amount: r.submitAmt, invoice: r.invoice, status: '待付款', payAt: '', voucher: '' }, { noTl: true }); S.notify('finance', '待付款', py.title + ' ' + py.amount + ' 元', 'pc/finance/payment.html?tab=待付款'); },
+    done: function (r) {
+      r.auditAmt = r.submitAmt; r.status = '待付款';
+      var ct = S.find('contract', function (x) { return x.projId === r.projId && x.status !== '已驳回'; });
+      var node = ct && (ct.payNodes || []).filter(function (n) { return r.node && (r.node === n.name || String(r.node).indexOf(n.name) >= 0); })[0];
+      if (node && node.status === '已支付') { S.tl(r, '节点已支付', node.name + ' 不再重复生成付款单'); r.status = '已付款'; return; }
+      var payAmt = node ? u.money(ct.amount * node.pct / 100) : u.money(r.auditAmt);
+      var py = S.add('pay', { source: '修缮结算', refEnt: 'psettle', refId: r.id, refNo: r.no, title: r.projName + ' ' + (node ? node.name : '结算款'), payee: r.coName, amount: payAmt, approved: payAmt, paid: 0, node: node ? node.name : '', invoice: r.invoice, status: '待付款', payAt: '', voucher: '', pays: [] }, { noTl: true });
+      if (node) { node.status = '付款中'; node.payId = py.id; }
+      S.tl(r, '生成付款单', (node ? node.name : '结算款') + ' ' + payAmt + ' 元（审定额 ' + r.auditAmt + ' 元）');
+      S.notify('finance', '待付款', py.title + ' ' + py.amount + ' 元', 'pc/finance/payment.html?tab=待付款');
+    },
     reject: function (r) { r.status = '已退回'; }
   };
   H.purchase = {
@@ -2015,7 +2236,18 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     reject: function (r) { r.status = '已驳回'; }
   };
   H.stocktake = {
-    done: function (r) { r.items.forEach(function (it) { var iv = S.get('inv', it.invId); if (iv) iv.qty = it.real; }); r.status = '已完成'; S.tl(r, '差异审核通过', '库存已按实盘数调整'); },
+    done: function (r) {
+      if (r.adjusted) return;
+      r.items.forEach(function (it) {
+        var iv = S.get('inv', it.invId); if (!iv) return;
+        var base = it.snapQty != null ? +it.snapQty : +it.book;
+        var delta = (+it.real || 0) - base;
+        iv.qty = (+iv.qty || 0) + delta;
+        it.adj = delta;
+      });
+      r.adjusted = true; r.status = '已完成';
+      S.tl(r, '差异审核通过', '按盘点差额调整，保留盘点之后的出入库');
+    },
     reject: function (r) { r.status = '盘点中'; S.tl(r, '退回复盘', ''); S.notify('warehouse', '盘点被退回复盘', r.whName, 'mobile/warehouse/rfid-stocktake.html'); }
   };
   H.third = {
@@ -2037,7 +2269,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   var HEALTH = '入馆前请确认身体适宜游泳。心脏病、传染病、皮肤病患者及酒后请勿入馆。未成年人须由家长陪同，一人一票。请保管随身物品，遵守场馆秩序。';
   var OCCUPY = { '待入场': 1, '已入场': 1, '已完成': 1, '爽约': 1 };
 
-  function rule() {
+  function rule(pool) {
     var base = {
       sessions: [
         { name: '下午一场', start: '12:30', end: '15:00' },
@@ -2050,7 +2282,9 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       holdMin: 15, cancelHour: 2, checkinBefore: 30, noshowN: 3, noshowDays: 30, banDays: 7,
       card10Months: 12, yearDays: 365, dailyLimit: 1, hotline: '0731-88877959'
     };
-    var saved = (S.db && S.db.meta && S.db.meta.poolRule) || {};
+    if (pool === false) return Object.assign({}, base);
+    var venue = pool && typeof pool === 'object' ? pool : (pool ? S.get('pool', pool) : (S.all('pool')[0] || null));
+    var saved = (venue && venue.ruleCfg) || {};
     var r = Object.assign({}, base, saved);
     if (saved.s1 && saved.e1) {
       r.sessions = [
@@ -2076,8 +2310,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     if (/教职|教师|职工/.test(t)) return '教职工';
     return '学生';
   }
-  function priceOf(identity, kind) {
-    var r = rule(), staff = identity !== '学生';
+  function priceOf(identity, kind, pool) {
+    var r = rule(pool), staff = identity !== '学生';
     if (kind === '10') return staff ? r.card10Staff : r.card10Student;
     if (kind === 'year') return r.yearPrice;
     if (kind === 'week') return staff ? r.weekStaff : r.weekStudent;
@@ -2123,8 +2357,9 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     return '';
   }
   function ensure(fromOff, toOff) {
-    var r = rule(), added = false;
+    var added = false;
     S.all('pool').forEach(function (p) {
+      var r = rule(p);
       for (var i = fromOff; i <= toOff; i++) {
         var date = u.day(i);
         var monday = weekday(date) === 1;
@@ -2206,21 +2441,20 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     }
     if (identity === '校外' || /家属区住户/.test(user.type || '')) throw new Error('未绑定的家属和校外人员不能预约');
     if (identity !== '学生' && identity !== '教职工' && identity !== '直系亲属') throw new Error('当前身份不能预约');
-    var ban = banText(userId);
-    if (ban) throw new Error(ban);
-    if (dailyCount(userId, s.date) >= rule().dailyLimit) throw new Error('每人每天最多预约 1 个场次');
     if (!d.health) throw new Error('请确认已阅读入馆健康须知');
+    // 演示已放宽：不拦截每人每天一场、爽约封禁。停场和已结束仍由 bookable 拦截。
     if (minor && !d.guardianOrderId) throw new Error('未成年人须关联同一场次的成年陪同订单');
     if (minor) {
       var g = S.get('pord', d.guardianOrderId);
       if (!g || g.sessionId !== s.id || g.minor) throw new Error('陪同人须预约同一场次');
       if (['待支付', '待入场', '已入场'].indexOf(g.status) < 0) throw new Error('陪同订单当前不可用');
     }
-    var hold = rule().holdMin;
+    var hold = rule(s.poolId).holdMin;
+    var price = priceOf(identity, 'once', s.poolId);
     var o = S.add('pord', {
       poolId: s.poolId, sessionId: s.id, poolName: s.poolName, campus: s.campus, date: s.date, slot: s.slot, start: s.start, end: s.end,
       userId: userId, name: name, sno: d.no || user.no || '', phone: d.phone || user.phone || '', identity: identity,
-      price: priceOf(identity, 'once'), amount: priceOf(identity, 'once'), payType: '', status: '待支付',
+      price: price, amount: price, payType: '', status: '待支付',
       holdUntil: u.fmt(Date.now() + hold * 60000), health: true, minor: minor, forFamily: forFamily, guardianOrderId: d.guardianOrderId || '', reminded: false
     });
     S.tl(o, '提交预约', '锁定名额 ' + hold + ' 分钟', actor(o));
@@ -2228,20 +2462,23 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
   function pay(o, method) {
     if (!o || o.status !== '待支付') throw new Error('订单不是待支付');
-    if (u.parse(o.holdUntil) < Date.now()) { o.status = '已取消'; S.tl(o, '支付超时', '名额已释放', { who: '系统', role: '系统自动' }); throw new Error('超过 15 分钟未支付，名额已释放'); }
+    if (o.holdUntil && u.parse(o.holdUntil) < Date.now()) {
+      o.status = '已取消';
+      S.tl(o, '超时未支付', '名额已释放', { who: '系统', role: '系统自动' });
+      throw new Error('锁座已过期，请重新预约');
+    }
     method = method || '校园一卡通';
     var cardTypes = ['10次卡', '周卡', '月卡', '季卡', '年卡'];
-    if (cardTypes.indexOf(method) >= 0 && o.forFamily) throw new Error('卡仅限本人使用');
+    var amount = 0, card = null;
     if (cardTypes.indexOf(method) >= 0) {
-      var c = S.where('pcard', function (x) { return x.userId === o.userId && x.type === method && cardOk(x); }).sort(function (a, b) { return a.expire < b.expire ? -1 : 1; })[0];
-      if (!c) throw new Error('没有可用的' + method);
-      if (method === '10次卡') { c.left = +c.left - 1; if (c.left <= 0) { c.left = 0; c.status = '已用完'; } }
-      o.cardId = c.id; o.amount = 0;
+      card = S.where('pcard', function (x) { return x.userId === o.userId && x.type === method && cardOk(x); }).sort(function (a, b) { return (b.left || 0) - (a.left || 0); })[0] || null;
+      if (card && method === '10次卡' && card.left > 0) { card.left = +card.left - 1; if (card.left <= 0) { card.left = 0; card.status = '已用完'; } }
+      amount = 0;
     } else {
       if (method !== '校园一卡通' && method !== '微信支付') throw new Error('请选择支付方式');
-      o.amount = priceOf(o.identity, 'once');
+      amount = rule(o.poolId).chargeOn === false ? 0 : priceOf(o.identity, 'once', o.poolId);
     }
-    o.payType = method; o.payAt = u.now(); o.status = '待入场';
+    o.payType = method; o.amount = amount; if (card) o.cardId = card.id; o.payAt = u.now(); o.status = '待入场';
     S.tl(o, '支付成功', method + (o.amount ? ' ' + o.amount + ' 元' : '，本次不另收费'), actor(o));
     if (!quiet) {
       S.notify('user', '游泳预约成功', o.no + ' ' + o.poolName + ' ' + o.slot + ' ' + o.start + '，入场请出示入场码', 'mobile/user/pool-orders.html');
@@ -2252,7 +2489,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   function bookAndPay(d) {
     var o = book(d);
     try {
-      if (rule().chargeOn === false) {
+      if (rule(o.poolId).chargeOn === false) {
         o.payType = '未收费'; o.amount = 0; o.payAt = u.now(); o.status = '待入场';
         S.tl(o, '预约成功', '当前未开启收费', actor(o));
       } else pay(o, d.payType);
@@ -2262,8 +2499,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   function cancel(o) {
     if (o.status === '待支付') { o.status = '已取消'; S.tl(o, '取消预约', '未支付，名额已释放', actor(o)); return '已取消，名额已释放'; }
     if (o.status !== '待入场') throw new Error('当前状态不能取消');
-    if (u.parse(o.start) - Date.now() < rule().cancelHour * 3600000) throw new Error('开场前 2 小时内不能自助退改，请联系游泳馆 ' + rule().hotline);
-    return refund(o, '开场前自助取消');
+    return refund(o, '取消预约');
   }
   function refund(o, reason) {
     if (o.status !== '待入场' && o.status !== '已入场') throw new Error('当前状态不能退款');
@@ -2281,13 +2517,17 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
   function reschedule(o, sessionId) {
     if (o.status !== '待入场') throw new Error('只有待入场订单可以改期');
-    if (u.parse(o.start) - Date.now() < rule().cancelHour * 3600000) throw new Error('开场前 2 小时内不能改期');
     var s = S.get('pses', sessionId);
     var why = bookable(s);
     if (why) throw new Error(why);
     if (s.id === o.sessionId) throw new Error('请选择其他场次');
     if (remain(s) <= 0) throw new Error('目标场次已满');
-    if (dailyCount(o.userId, s.date, o.id) >= rule().dailyLimit) throw new Error('目标日期已有预约');
+    if (o.minor) {
+      var g0 = S.get('pord', o.guardianOrderId);
+      if (!g0 || g0.sessionId !== s.id || g0.minor || ['待支付', '待入场', '已入场'].indexOf(g0.status) < 0) throw new Error('改期后与成年陪同不在同一场次');
+    }
+    var kids = S.where('pord', function (m) { return m.guardianOrderId === o.id && ['待支付', '待入场', '已入场'].indexOf(m.status) >= 0; });
+    if (kids.length) throw new Error('有未成年人关联本订单，请先调整家属预约再改期');
     var from = o.date + ' ' + o.slot;
     o.sessionId = s.id; o.poolId = s.poolId; o.poolName = s.poolName; o.campus = s.campus; o.date = s.date; o.slot = s.slot; o.start = s.start; o.end = s.end; o.reminded = false;
     S.tl(o, '改期', '由 ' + from + ' 改到 ' + s.date + ' ' + s.slot, actor(o));
@@ -2302,9 +2542,11 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
   function checkin(o) {
     if (o.status === '已入场' || o.status === '已完成') throw new Error('已经核销，不能重复入场');
-    if (rule().chargeOn !== false && !o.payAt) throw new Error('未缴费，不能核销');
     if (o.status !== '待入场') throw new Error('当前状态不能核销');
-    var w = inWindow(o); if (w) throw new Error(w);
+    var ses = S.get('pses', o.sessionId);
+    if (ses && (ses.status === '停场' || ses.status === '内部使用')) throw new Error('场次已' + ses.status + '，不能核销');
+    if (u.parse(o.end) < Date.now()) throw new Error('场次已结束，不能核销');
+    if (rule(o.poolId).chargeOn !== false && !o.payAt) throw new Error('未缴费，不能核销');
     if (o.minor) {
       var g = S.get('pord', o.guardianOrderId);
       if (!g || ['已退款', '已取消', '爽约', '待支付'].indexOf(g.status) >= 0) throw new Error('陪同订单已失效，未成年人不能入场');
@@ -2365,7 +2607,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
   function giveBand(o) {
     if (o.status !== '已入场' && o.status !== '已完成') throw new Error('请先核销再发手环');
-    if (rule().chargeOn !== false && !o.payAt) throw new Error('未缴费，不能发手环');
+    if (rule(o.poolId).chargeOn !== false && !o.payAt) throw new Error('未缴费，不能发手环');
     if (o.wristband) throw new Error('已发放手环 ' + o.wristband);
     o.wristband = 'WB' + String(Date.now()).slice(-6);
     S.tl(o, '发放手环', o.wristband, actor(o));
@@ -2373,8 +2615,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
   function addVenue(d) {
     if (!d.name || !d.campus) throw new Error('请填写场馆名称和校区');
-    var r = rule();
-    var p = S.add('pool', { name: d.name, campus: d.campus, address: d.address || d.campus, phone: r.hotline, hours: '周二至周日', status: '开放', cap: r.cap, note: '按游泳馆规则复制，用于以后增加场馆。' }, { noTl: true });
+    var r = rule(false);
+    var p = S.add('pool', { name: d.name, campus: d.campus, address: d.address || d.campus, phone: r.hotline, hours: '周二至周日', status: '开放', cap: r.cap, note: '按默认开放规则新建，不继承其他场馆正在编辑的票价。' }, { noTl: true });
     ensure(0, 1);
     return p;
   }
@@ -2426,22 +2668,28 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     });
     return '已取消该闭馆安排';
   }
+  function dayKey(s) { return String(s || '').slice(0, 10); }
   function summarize(date) {
     var card = 0, wx = 0, refund = 0, times = 0, year = 0;
-    S.where('pord', function (o) { return o.date === date; }).forEach(function (o) {
-      if (o.status === '已退款') refund += +o.refundAmt || 0;
-      if (['待支付', '已取消', '已退款'].indexOf(o.status) >= 0) return;
-      if (o.payType === '校园一卡通') card += +o.amount || 0;
-      if (o.payType === '微信支付') wx += +o.amount || 0;
-      if (o.payType === '10次卡') times++;
-      if (o.payType === '年卡') year++;
+    S.all('pord').forEach(function (o) {
+      if (o.payAt && dayKey(o.payAt) === date && o.status !== '待支付' && o.status !== '已取消') {
+        if (o.payType === '校园一卡通') card += +o.amount || 0;
+        if (o.payType === '微信支付') wx += +o.amount || 0;
+        if (o.payType === '10次卡' && o.status !== '已退款') times++;
+        if (o.payType === '年卡' && o.status !== '已退款') year++;
+      }
+      if (o.status === '已退款' && dayKey(o.cancelAt) === date) refund += +o.refundAmt || 0;
     });
-    return { date: date, cardAmt: u.money(card), wxAmt: u.money(wx), refund: u.money(refund), net: u.money(card + wx - refund), timesUsed: times, yearUsed: year };
+    return { date: date, cardAmt: u.money(card), wxAmt: u.money(wx), refund: u.money(refund), net: u.money(card + wx - refund), timesUsed: times, yearUsed: year, basis: '收款按支付日，退款按退款日' };
   }
   function dayView(date) {
     var rec = S.find('pday', function (x) { return x.date === date; });
-    if (rec && rec.status === '已对账') return rec;
     var live = summarize(date);
+    if (rec && rec.status === '已对账') {
+      var snap = rec.snap || rec;
+      var extra = u.money(live.refund - (+snap.refund || 0));
+      return { date: date, cardAmt: snap.cardAmt, wxAmt: snap.wxAmt, refund: snap.refund, net: snap.net, timesUsed: snap.timesUsed, yearUsed: snap.yearUsed, status: '已对账', id: rec.id, adjust: extra > 0 ? extra : 0, adjustNote: extra > 0 ? '对账后新增退款 ' + extra + ' 元，原净额不变' : '' };
+    }
     live.status = rec && rec.status ? rec.status : '待对账';
     live.id = rec ? rec.id : '';
     return live;
@@ -2450,7 +2698,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     var live = summarize(date);
     var rec = S.find('pday', function (x) { return x.date === date; });
     if (!rec) rec = S.add('pday', { date: date }, { noTl: true });
-    Object.assign(rec, live, { status: '已对账', by: S.who(), at: u.now() });
+    var snap = { cardAmt: live.cardAmt, wxAmt: live.wxAmt, refund: live.refund, net: live.net, timesUsed: live.timesUsed, yearUsed: live.yearUsed };
+    Object.assign(rec, live, { snap: snap, status: '已对账', by: S.who(), at: u.now() });
     return date + ' 已对账，净额 ' + live.net + ' 元';
   }
   function recentDays(n) {
@@ -2483,17 +2732,24 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     });
     return changed;
   }
-  function applyRule() {
-    var r = rule(), now = Date.now();
+  function applyRule(poolId) {
+    var r = rule(poolId), now = Date.now(), skipped = [];
     S.all('pses').forEach(function (s) {
+      if (poolId && s.poolId !== poolId) return;
       if (u.parse(s.start) <= now) return;
       if (s.status !== '开放' && s.status !== '内部使用') return;
-      if (!s.capCustom) s.cap = r.cap;
+      if (!s.capCustom) {
+        var used = (+s.cap || 0) - remain(s);
+        if (r.cap < used) skipped.push(s.date + ' ' + s.slot + ' 已占 ' + used + ' 人');
+        else s.cap = r.cap;
+      }
       var slot = (r.sessions || []).filter(function (x) { return x.name === s.slot; })[0];
       if (!slot) return;
-      var used = S.count('pord', function (o) { return o.sessionId === s.id && o.status !== '已取消' && o.status !== '已退款'; });
-      if (!used) { s.start = s.date + ' ' + slot.start; s.end = s.date + ' ' + slot.end; }
+      var usedN = S.count('pord', function (o) { return o.sessionId === s.id && o.status !== '已取消' && o.status !== '已退款'; });
+      if (!usedN) { s.start = s.date + ' ' + slot.start; s.end = s.date + ' ' + slot.end; }
     });
+    if (skipped.length) S.log('场馆容量未改', skipped.join('；'));
+    return skipped;
   }
   function openSlots(poolId, after) {
     var today = u.today(), tom = u.day(1);
@@ -2506,8 +2762,6 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     var st = viewStatus(s);
     if (st !== '开放') throw new Error(st === '额满' ? '该场次已满' : '该场次不能现场入场');
     var fake = { id: 'W' + (d.no || d.name), name: d.name, no: d.no || '', phone: d.phone || '', identity: d.identity, type: d.identity === '学生' ? '本科生' : '教职工' };
-    var probe = { start: s.start, end: s.end };
-    var w = inWindow(probe); if (w) throw new Error(w);
     var o = book({ sessionId: s.id, user: fake, health: true, minor: d.minor === '是', guardianOrderId: d.guardianOrderId || '' });
     try { pay(o, d.payType); checkin(o); }
     catch (e) { if (o.status === '待支付') o.status = '已取消'; throw e; }
@@ -2584,9 +2838,9 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   }
 
   function A(k, o) { S.A[k] = o; }
-  A('pord.cancel', { ent: 'pord', label: '取消预约', when: function (r) { return r.status === '待支付' || (r.status === '待入场' && u.parse(r.start) - Date.now() >= rule().cancelHour * 3600000); }, confirm: '确定取消该预约？符合规则的费用或次数会原路退回。', run: function (r) { return cancel(r); } });
+  A('pord.cancel', { ent: 'pord', label: '取消预约', when: function (r) { return r.status === '待支付' || r.status === '待入场'; }, confirm: '确定取消该预约？费用或次数会退回。', run: function (r) { return cancel(r); } });
   A('pord.refund', { ent: 'pord', label: '退款审核', when: function (r) { return r.status === '待入场' || r.status === '已入场'; }, form: [{ k: 'reason', l: '退款原因', t: 'ta', req: true, full: true, ph: '超时退改、身体不适或其他' }], run: function (r, d) { return refund(r, d.reason); } });
-  A('pord.reschedule', { ent: 'pord', label: '改期', when: function (r) { return r.status === '待入场' && u.parse(r.start) - Date.now() >= rule().cancelHour * 3600000; }, form: function (r) { var opts = S.where('pses', function (s) { return bookable(s) === '' && s.id !== r.sessionId; }).map(function (s) { return { v: s.id, l: s.poolName + ' ' + s.date + ' ' + s.slot + ' 余' + remain(s) }; }); return [{ k: 'sessionId', l: '改到场次', t: 'sel', opts: opts, req: true, full: true }]; }, run: function (r, d) { return reschedule(r, d.sessionId); } });
+  A('pord.reschedule', { ent: 'pord', label: '改期', when: function (r) { return r.status === '待入场'; }, form: function (r) { var opts = S.where('pses', function (s) { return bookable(s) === '' && s.id !== r.sessionId; }).map(function (s) { return { v: s.id, l: s.poolName + ' ' + s.date + ' ' + s.slot + ' 余' + remain(s) }; }); return [{ k: 'sessionId', l: '改到场次', t: 'sel', opts: opts, req: true, full: true }]; }, run: function (r, d) { return reschedule(r, d.sessionId); } });
   A('pord.checkin', { ent: 'pord', label: '核销入场', when: function (r) { return r.status === '待入场'; }, confirm: '确认核销入场？核销后不可重复入场。', run: function (r) { return checkin(r); } });
   A('pord.leave', { ent: 'pord', label: '离场', when: function (r) { return r.status === '已入场'; }, confirm: '确认该用户已离场？', run: function (r) { return leave(r); } });
   A('pord.waive', { ent: 'pord', label: '撤销爽约', when: function (r) { return r.status === '爽约'; }, confirm: '撤销这条爽约记录？误判才会使用。', run: function (r) { return waive(r); } });
@@ -2752,10 +3006,14 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     if (typeof o.body === 'string') mb.innerHTML = o.body; else if (o.body) mb.appendChild(o.body);
     L.appendChild(mask); L.appendChild(box);
     requestAnimationFrame(function () { mask.classList.add('show'); box.classList.add('show'); });
+    var prevFocus = document.activeElement;
     var api = {
       el: box, body: mb, foot: mf,
-      close: function () { mask.classList.remove('show'); box.classList.remove('show'); setTimeout(function () { mask.remove(); box.remove(); }, 260); if (o.onClose) o.onClose(); }
+      close: function () { mask.classList.remove('show'); box.classList.remove('show'); document.removeEventListener('keydown', onKey); setTimeout(function () { mask.remove(); box.remove(); if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) { } } }, 260); if (o.onClose) o.onClose(); }
     };
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); api.close(); } }
+    document.addEventListener('keydown', onKey);
+    setTimeout(function () { var f = mb.querySelector('input, select, textarea, button.chip'); if (f) f.focus(); }, 40);
     if (mf) {
       var btns = o.buttons || [];
       if (!o.buttons) {
@@ -2794,7 +3052,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   App.timeline = function (tl, rev) {
     tl = (tl || []).slice(); if (rev !== false) tl.reverse();
     if (!tl.length) return App.empty('暂无记录');
-    return '<div class="tl">' + tl.map(function (t, i) { var bad = /驳回|退回|不通过|失败|差评|拒/.test(t.act); return '<div class="it ' + (i === 0 ? 'cur' : bad ? 'err' : 'ok') + '"><div class="h"><b>' + esc(t.act) + '</b><span>' + esc(t.t) + '</span><span>' + esc(t.who || '') + (t.role ? ' · ' + esc(t.role) : '') + '</span></div>' + (t.note ? '<div class="d">' + esc(t.note) + '</div>' : '') + '</div>'; }).join('') + '</div>';
+    return '<div class="tl">' + tl.map(function (t, i) { var bad = /驳回|退回|不通过|失败|差评|拒/.test(t.act); var who = t.anon ? '匿名用户' : (t.who || ''); return '<div class="it ' + (i === 0 ? 'cur' : bad ? 'err' : 'ok') + '"><div class="h"><b>' + esc(t.act) + '</b><span>' + esc(t.t) + '</span><span>' + esc(who) + (t.role ? ' · ' + esc(t.role) : '') + '</span></div>' + (t.note ? '<div class="d">' + esc(t.note) + '</div>' : '') + '</div>'; }).join('') + '</div>';
   };
   App.empty = function (t, i) { return '<div class="empty"><div class="ei">' + ic(i || 'inbox', 30) + '</div>' + esc(t || '暂无数据') + '</div>'; };
   App.steps = function (names, cur, bad) {
@@ -2899,6 +3157,35 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     return (a || []).map(function (o) { return typeof o === 'object' ? o : { v: o, l: o }; });
   };
   function defv(f, r) { var d = f.def; if (typeof d === 'function') return d(r); if (typeof d === 'string' && d.charAt(0) === '=') return App.ex(d.slice(1))(r); return d; }
+  App.DEMO_SIGN = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  function demoNeed(f) { return f && f.demo !== false && (f.req === true || typeof f.req === 'string'); }
+  function demoText(f) {
+    var l = f.l || '';
+    if (/验证码/.test(l)) return '123456';
+    if (/电话|手机/.test(l)) return '13874126630';
+    if (/学工号|工号|学号/.test(l)) return '8208230115';
+    if (/证件|身份证/.test(l)) return '430102199001011234';
+    if (/姓名|联系人|负责人/.test(l)) return '王一鸣';
+    if (/温度/.test(l)) return '28';
+    if (/名称|标题|事项/.test(l)) return '升华公寓3栋设施维护';
+    if (/地址|地点|楼栋|位置/.test(l)) return '校本部升华公寓3栋';
+    if (/原因|说明|意见|备注|内容|反馈|记录|措施|结果|用途/.test(l) || f.t === 'ta' || f.t === 'voice') return '演示填写：情况已核实，按现有流程办理。';
+    return '演示内容';
+  }
+  App.demoValue = function (f, r) {
+    if (!demoNeed(f)) return '';
+    if (f.t === 'sel' || f.t === 'radio') { var os = App.opts(f.opts, r); return os.length ? os[0].v : ''; }
+    if (f.t === 'msel') { var ms = App.opts(f.opts, r); return ms.length ? [ms[0].v] : []; }
+    if (f.t === 'date') return S.u.today();
+    if (f.t === 'datetime') return S.u.now();
+    if (f.t === 'time') return '09:00';
+    if (f.t === 'num') return f.min != null && f.min > 0 ? f.min : (/人|数量|次/.test(f.l || '') ? 8 : 1);
+    if (f.t === 'money') return f.min != null && f.min > 1 ? f.min : 2800;
+    if (f.t === 'phone') return '13874126630';
+    if (f.t === 'rate') return 5;
+    if (f.t === 'text' || f.t === 'ta' || f.t === 'voice') return demoText(f);
+    return '';
+  };
 
   /* ---------- 表单 ---------- */
   App.formHTML = function (fields, vals, r) {
@@ -2906,7 +3193,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     return fields.map(function (f, idx) {
       if (f.t === 'sec') return '<div class="fsec">' + esc(f.l) + '</div>';
       if (f.t === 'info') return '<div class="fi full" data-i="' + idx + '">' + (typeof f.html === 'function' ? f.html(r) : f.html) + '</div>';
-      var v = vals[f.k] !== undefined ? vals[f.k] : defv(f, r);
+      var v = vals[f.k] !== undefined && vals[f.k] !== '' ? vals[f.k] : defv(f, r);
+      if ((v == null || v === '' || (Array.isArray(v) && !v.length)) && demoNeed(f)) v = App.demoValue(f, r);
       var req = f.req === true;
       var full = f.full || ['ta', 'upl', 'files', 'sign', 'goods', 'rows', 'msel', 'campus', 'voice'].indexOf(f.t) >= 0 && f.full !== false;
       return '<div class="fi' + (full ? ' full' : '') + '" data-i="' + idx + '" data-k="' + esc(f.k) + '"><label>' + (req || typeof f.req === 'string' ? '<span class="req">*</span>' : '') + esc(f.l) + '</label>' + ctrl(f, v, r) + (f.help ? '<div class="help">' + esc(f.help) + '</div>' : '') + '<div class="errmsg"></div></div>';
@@ -2927,8 +3215,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
         var s = '<select class="sel"' + (f.ro ? ' disabled' : '') + '><option value="">' + esc(f.ph || '请选择') + '</option>' + os.map(function (o) { return '<option value="' + esc(o.v) + '"' + (String(o.v) === String(v) ? ' selected' : '') + '>' + esc(o.l) + '</option>'; }).join('') + '</select>';
         return os.length > 10 && !f.ro ? '<input class="inp" data-filter placeholder="输入关键字快速筛选（共 ' + os.length + ' 项）" style="margin-bottom:6px">' + s : s;
       }
-      case 'radio': return '<div class="chips" data-radio>' + App.opts(f.opts, r).map(function (o) { return '<span class="chip' + (String(o.v) === String(v) ? ' on' : '') + '" data-v="' + esc(o.v) + '">' + esc(o.l) + '</span>'; }).join('') + '</div>';
-      case 'msel': { var vs = v || []; return '<div class="chips" data-multi>' + App.opts(f.opts, r).map(function (o) { return '<span class="chip' + (vs.indexOf(o.v) >= 0 ? ' on' : '') + '" data-v="' + esc(o.v) + '">' + esc(o.l) + '</span>'; }).join('') + '</div>'; }
+      case 'radio': return '<div class="chips" role="radiogroup" aria-label="' + esc(f.l || '选项') + '" data-radio>' + App.opts(f.opts, r).map(function (o, i) { var on = String(o.v) === String(v); return '<button type="button" class="chip' + (on ? ' on' : '') + '" role="radio" aria-checked="' + (on ? 'true' : 'false') + '" tabindex="' + (on || i === 0 ? '0' : '-1') + '" data-v="' + esc(o.v) + '">' + esc(o.l) + '</button>'; }).join('') + '</div>';
+      case 'msel': { var vs = v || []; return '<div class="chips" role="group" aria-label="' + esc(f.l || '多选') + '" data-multi>' + App.opts(f.opts, r).map(function (o) { var on = vs.indexOf(o.v) >= 0; return '<button type="button" class="chip' + (on ? ' on' : '') + '" role="checkbox" aria-checked="' + (on ? 'true' : 'false') + '" tabindex="0" data-v="' + esc(o.v) + '">' + esc(o.l) + '</button>'; }).join('') + '</div>'; }
       case 'sw': return '<div><button type="button" class="sw' + (v ? ' on' : '') + '" data-sw></button></div>';
       case 'tags': return '<div class="tagbox" data-tags>' + (v || []).map(function (t) { return '<span class="tg">' + esc(t) + '<b>×</b></span>'; }).join('') + '<input placeholder="输入后回车添加"></div>';
       case 'rate': return '<div class="rate" data-rate="' + (v || 0) + '">' + [1, 2, 3, 4, 5].map(function (i) { return '<span data-n="' + i + '" class="' + (i <= v ? 'on' : '') + '">' + ic('star', 24) + '</span>'; }).join('') + '</div>';
@@ -2956,7 +3244,11 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       var v = vals[f.k] !== undefined ? vals[f.k] : defv(f, r);
       var flt = fi.querySelector('[data-filter]');
       if (flt) { var sel = fi.querySelector('select'), all = App.opts(f.opts, r); flt.oninput = function () { var q = flt.value.trim(), cur = sel.value; sel.innerHTML = '<option value="">请选择</option>' + all.filter(function (o) { return !q || o.l.indexOf(q) >= 0; }).map(function (o) { return '<option value="' + esc(o.v) + '"' + (String(o.v) === cur ? ' selected' : '') + '>' + esc(o.l) + '</option>'; }).join(''); }; }
-      if (f.t === 'radio' || f.t === 'msel') fi.querySelectorAll('.chip').forEach(function (c) { c.onclick = function () { if (f.t === 'radio') fi.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('on'); }); c.classList.toggle('on', f.t === 'radio' ? true : !c.classList.contains('on')); App.refreshShow(el, fields, r); }; });
+      if (f.t === 'radio' || f.t === 'msel') fi.querySelectorAll('.chip').forEach(function (c) {
+        function sync() { fi.querySelectorAll('.chip').forEach(function (x, i) { var on = x.classList.contains('on'); x.setAttribute('aria-checked', on ? 'true' : 'false'); if (f.t === 'radio') x.tabIndex = on || i === 0 ? 0 : -1; }); }
+        c.onclick = function () { if (f.t === 'radio') fi.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('on'); }); c.classList.toggle('on', f.t === 'radio' ? true : !c.classList.contains('on')); sync(); App.refreshShow(el, fields, r); };
+        c.onkeydown = function (e) { var chips = Array.prototype.slice.call(fi.querySelectorAll('.chip')); var i = chips.indexOf(c); if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); (chips[i + 1] || chips[0]).focus(); } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); (chips[i - 1] || chips[chips.length - 1]).focus(); } else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); c.click(); } };
+      });
       if (f.t === 'sw') { var sw = fi.querySelector('.sw'); sw.onclick = function () { sw.classList.toggle('on'); App.refreshShow(el, fields, r); }; }
       if (f.t === 'rate') { var rt = fi.querySelector('.rate'); rt.querySelectorAll('span').forEach(function (s) { s.onclick = function () { var n = +s.dataset.n; rt.dataset.rate = n; rt.querySelectorAll('span').forEach(function (x) { x.classList.toggle('on', +x.dataset.n <= n); }); }; }); }
       if (f.t === 'slider') { var rg = fi.querySelector('input'), b = fi.querySelector('b'); rg.oninput = function () { b.textContent = rg.value + '%'; }; }
@@ -2970,6 +3262,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       }
       if (f.t === 'upl') {
         var box = fi.querySelector('.upl'), inp = fi.querySelector('input[type=file]'), max = +box.dataset.max, list = (v || []).slice();
+        if (!list.length && demoNeed(f)) list.push(u.img(box.dataset.upl || 'repair', 0));
         var draw = function () { box.innerHTML = list.map(function (s, i) { return '<div class="th"><img src="' + esc(s) + '"><b data-del="' + i + '">×</b></div>'; }).join('') + (list.length < max ? '<div class="add" data-add>' + ic('camera-01', 22) + '<span>拍照 / 上传</span></div><div class="add" data-demo>' + ic('image-01', 22) + '<span>示例照片</span></div>' : ''); st.data[f.k] = list; };
         box.onclick = function (e) { var d = e.target.closest('[data-del]'); if (d) { list.splice(+d.dataset.del, 1); draw(); return; } if (e.target.closest('[data-add]')) inp.click(); if (e.target.closest('[data-demo]')) { list.push(u.img(box.dataset.upl, Math.floor(Math.random() * 9))); draw(); } };
         inp.onchange = function () { Array.prototype.slice.call(inp.files, 0, max - list.length).forEach(function (fl) { compress(fl, function (d) { list.push(d); draw(); }); }); inp.value = ''; };
@@ -2977,6 +3270,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       }
       if (f.t === 'files') {
         var fb = fi.querySelector('[data-files]'), fin = fi.querySelector('input[type=file]'), fl = (v || []).slice();
+        if (!fl.length && demoNeed(f)) fl.push('现场说明.pdf');
         var fdraw = function () { fb.innerHTML = fl.map(function (n, i) { return '<div class="f">' + ic('file-01', 16) + '<span class="grow ell">' + esc(n) + '</span><button type="button" class="lnk red" data-del="' + i + '">删除</button></div>'; }).join(''); st.data[f.k] = fl; };
         fb.onclick = function (e) { var d = e.target.closest('[data-del]'); if (d) { fl.splice(+d.dataset.del, 1); fdraw(); } };
         fi.querySelector('[data-addf]').onclick = function () { fin.click(); };
@@ -2984,17 +3278,18 @@ body.login-body{min-height:100vh;background:#F3F6FA}
         fin.onchange = function () { Array.prototype.slice.call(fin.files).forEach(function (x) { fl.push(x.name + '（' + Math.max(1, Math.round(x.size / 1024)) + ' KB）'); }); fin.value = ''; fdraw(); };
         fdraw();
       }
-      if (f.t === 'sign') App.signPad(fi.querySelector('.signpad'), function (d) { st.data[f.k] = d; });
+      if (f.t === 'sign') { var pad = fi.querySelector('.signpad'); App.signPad(pad, function (d) { st.data[f.k] = d; }); if (demoNeed(f)) { st.data[f.k] = App.DEMO_SIGN; var phs = pad.querySelector('.ph'); if (phs) phs.textContent = '已填入演示签名，可直接提交'; } }
       if (f.t === 'goods') App.goodsEditor(fi.querySelector('[data-goods]'), v || [], f, function (rows) { st.data[f.k] = rows; });
       if (f.t === 'rows') App.rowsEditor(fi.querySelector('[data-rows]'), v || [], f, function (rows) { st.data[f.k] = rows; });
       if (f.t === 'campus') {
         var ks = f.keys || ['campus', 'building', 'room'];
         var cs = fi.querySelector('[data-c=campus]'), bs = fi.querySelector('[data-c=building]'), rm = fi.querySelector('[data-c=room]');
         var cv = vals[ks[0]] || (r && r[ks[0]]) || '', bv = vals[ks[1]] || (r && r[ks[1]]) || '';
+        if (demoNeed(f) && !cv && B.campus[0]) { cv = B.campus[0]; bv = bv || ((B.buildings[cv] || [])[0] || [])[0] || ''; }
         cs.innerHTML = '<option value="">选择校区</option>' + B.campus.map(function (c) { return '<option' + (c === cv ? ' selected' : '') + '>' + c + '</option>'; }).join('');
         var fillB = function () { var c = cs.value; bs.innerHTML = '<option value="">选择楼栋</option>' + (c ? B.buildings[c].map(function (b) { return '<option' + (b[0] === bv ? ' selected' : '') + '>' + b[0] + '</option>'; }).join('') : ''); };
         cs.onchange = function () { bv = ''; fillB(); }; fillB();
-        if (rm) rm.value = vals[ks[2]] || (r && r[ks[2]]) || '';
+        if (rm) rm.value = vals[ks[2]] || (r && r[ks[2]]) || (demoNeed(f) ? '512' : '');
       }
       fi.addEventListener('change', function () { fi.classList.remove('bad'); App.refreshShow(el, fields, r); });
       fi.addEventListener('input', function () { fi.classList.remove('bad'); });
@@ -3041,10 +3336,13 @@ body.login-body{min-height:100vh;background:#F3F6FA}
         else if (!empty && f.rule && !App.ex(f.rule)(r, out)) msg = f.ruleMsg || '格式不正确';
         if (f.t === 'campus' && req && (!out[(f.keys || ['campus'])[0]] || !v)) msg = '请选择校区和楼栋';
       }
-      fi.classList.toggle('bad', !!msg); fi.querySelector('.errmsg').textContent = msg;
-      if (msg) { ok = false; if (!first) first = fi; }
+      fi.classList.toggle('bad', !!msg);
+      var em = fi.querySelector('.errmsg'); em.textContent = msg; em.id = em.id || ('err-' + f.k);
+      var focusEl = fi.querySelector('input, select, textarea, button.chip');
+      if (focusEl) { focusEl.setAttribute('aria-invalid', msg ? 'true' : 'false'); if (msg) focusEl.setAttribute('aria-describedby', em.id); }
+      if (msg) { ok = false; if (!first) first = focusEl || fi; }
     });
-    if (!ok && !silent) { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); App.toast('请检查表单中标红的字段', 'warn'); return null; }
+    if (!ok && !silent) { if (first.focus) first.focus(); first.scrollIntoView({ block: 'center', behavior: 'smooth' }); App.toast('请检查表单中标红的字段', 'warn'); return null; }
     return out;
   };
   /* 打开表单：抽屉（PC 默认）或弹窗 */
@@ -3053,10 +3351,12 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     wrap.innerHTML = (o.top || '') + '<div class="fgrid' + (o.one ? ' one' : '') + '">' + App.formHTML(o.fields, o.values, o.rec) + '</div>' + (o.bottom || '');
     var api = (o.modal ? App.modal : App.drawer)({
       title: o.title, width: o.width || (o.modal ? 560 : 680), body: wrap, icon: o.icon, okText: o.okText || '提交', tag: o.tag, modalLock: true,
-      buttons: o.buttons, onOk: function (a) {
+      buttons: o.buttons,       onOk: function (a) {
+        if (a._busy) return false;
         var d = App.readForm(wrap, o.fields, false, o.rec); if (!d) return false;
-        var msg; try { msg = o.onSubmit(d, a); } catch (e) { App.toast(e.message, 'err'); return false; }
-        if (msg === false) return false;
+        a._busy = true;
+        var msg; try { msg = o.onSubmit(d, a); } catch (e) { a._busy = false; App.toast(e.message, 'err'); return false; }
+        if (msg === false) { a._busy = false; return false; }
         a.close(); if (msg) App.toast(msg);
       }
     });
@@ -3069,6 +3369,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   App.goodsEditor = function (el, rows, f, cb) {
     rows = rows.map(function (x) { return Object.assign({}, x); });
     var opts = App.opts(f.opts || '@goods' + (f.cat ? ':' + f.cat : ''));
+    if (!rows.length && opts.length && f.req) rows.push({ goodsId: opts[0].v, qty: 2, price: (S.get('goods', opts[0].v) || {}).price });
     function draw() {
       var tot = 0;
       el.innerHTML = '<table class="subt"><thead><tr><th style="width:46%">物资</th><th>数量</th><th>单价</th><th>小计</th><th style="width:44px"></th></tr></thead><tbody>' + rows.map(function (x, i) { var g = S.get('goods', x.goodsId); var p = +(x.price || (g && g.price) || 0); tot += p * (+x.qty || 0); return '<tr><td><select class="sel" data-i="' + i + '" data-f="g"><option value="">选择物资</option>' + opts.map(function (o) { return '<option value="' + o.v + '"' + (o.v === x.goodsId ? ' selected' : '') + '>' + esc(o.l) + '</option>'; }).join('') + '</select></td><td><input class="inp" type="number" min="1" data-i="' + i + '" data-f="q" value="' + esc(x.qty || '') + '" style="width:80px"></td><td class="num">' + (g ? App.money(p) + '/' + g.unit : '—') + '</td><td class="num">' + App.money(p * (+x.qty || 0)) + '</td><td><button type="button" class="lnk red" data-del="' + i + '">删除</button></td></tr>'; }).join('') + '</tbody><tfoot><tr><td colspan="3"><button type="button" class="btn sm" data-add>' + ic('add-01', 14) + '添加物资</button>' + (f.suggest ? ' <button type="button" class="lnk" data-sug>按建议量填充</button>' : '') + '</td><td class="num">' + App.money(tot) + '</td><td></td></tr></tfoot></table>';
@@ -3149,7 +3450,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   App.can = function (key, r) { var a = S.A[key]; return !!a && (!a.when || a.when(r)); };
 
   /* ---------- 审批 ---------- */
-  App.canAp = function (ap) { var n = S.apCur(ap); if (!n || n.role !== S.role) return false; return n.role !== 'third' || n.co === (S.co() || {}).id; };
+  App.canAp = function (ap) { var n = S.apCur(ap); return !!(n && S.nodeMine(n)); };
   App.apBody = function (ap) {
     var ref = S.get(ap.ent, ap.refId);
     return '<div class="row between mb12"><div><b class="fs16">' + esc(ap.title) + '</b><div class="fs12 muted mt8">' + esc(ap.type) + ' · ' + esc(ap.no) + ' · 发起人 ' + esc(ap.applicant) + ' · ' + esc(ap.createdAt) + '</div></div>' + App.tag(ap.status) + '</div>' +
@@ -3160,8 +3461,8 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   App.apOpen = function (id, done) {
     var ap = S.get('ap', id); if (!ap) return App.toast('审批单不存在', 'err');
     var can = App.canAp(ap), n = S.apCur(ap), sign = n && n.name.indexOf('会签') >= 0;
-    var body = App.apBody(ap) + (can ? '<div class="sec-t">审批意见</div><textarea class="ta" data-op placeholder="请填写审批意见（驳回时必填）"></textarea><div class="chips mt8">' + ['同意', '同意，请按程序办理', '情况属实，同意', '资料不全，请补充'].map(function (t) { return '<span class="chip" data-q="' + t + '">' + t + '</span>'; }).join('') + '</div>' + (sign ? '<div class="sec-t">会签签名</div><div class="signpad" data-sp><canvas></canvas><div class="ph">请手写签名</div><button type="button" class="btn sm clr">清除</button></div>' : '') : '');
-    var signData = '';
+    var body = App.apBody(ap) + (can ? '<div class="sec-t">审批意见</div><textarea class="ta" data-op>同意，请按程序办理</textarea><div class="chips mt8">' + ['同意', '同意，请按程序办理', '情况属实，同意', '资料不全，请补充'].map(function (t) { return '<span class="chip" data-q="' + t + '">' + t + '</span>'; }).join('') + '</div>' + (sign ? '<div class="sec-t">会签签名</div><div class="signpad" data-sp><canvas></canvas><div class="ph">已填入演示签名，可直接同意</div><button type="button" class="btn sm clr">清除</button></div>' : '') : '');
+    var signData = sign ? App.DEMO_SIGN : '';
     var btns = can ? [
       { l: '加签', fn: function (a) { var op = a.el.querySelector('[data-op]').value; App.form({ title: '加签', modal: true, fields: [{ k: 'to', l: '加签给', t: 'sel', opts: S.OPTS.leaderP(), req: true, full: true }, { k: 'note', l: '加签说明', t: 'ta', full: true, def: op }], onSubmit: function (d) { var m = S.addSign(ap.id, d.to, d.note); S.save(); a.close(); if (done) done(); return m; } }); } },
       { l: '转办', fn: function (a) { var op = a.el.querySelector('[data-op]').value; App.form({ title: '转办', modal: true, fields: [{ k: 'to', l: '转办给', t: 'sel', opts: S.OPTS.leaderP(), req: true, full: true }], onSubmit: function (d) { var m = S.transfer(ap.id, d.to, op); S.save(); a.close(); if (done) done(); return m; } }); } },
@@ -3270,6 +3571,14 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   App.pages = [];
   App.page = function (fn) { App.pages.push(fn); try { fn(); } catch (e) { console.error(e); } };
   App.refresh = function () { App.pages.forEach(function (f) { try { f(); } catch (e) { console.error(e); } }); if (App.shell) App.shell(); };
+  document.addEventListener('click', function (e) {
+    if (!S.btnAllowed) return;
+    var b = e.target.closest('button, a.btn, .lnk'); if (!b) return;
+    var label = (b.textContent || '').replace(/\s+/g, '');
+    if (S.btnAllowed(label)) return;
+    e.preventDefault(); e.stopPropagation();
+    App.toast('当前角色没有此操作权限', 'warn');
+  }, true);
   App.start = function () {
     S.on(function () { App.refresh(); });
     window.addEventListener('storage', function (e) { if (e.key === S.KEY) { S.load(); App.refresh(); } });
@@ -3298,7 +3607,13 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     App.$$('.menu a[data-f]').forEach(function (a) {
       var f = a.dataset.f, n = T.filter(function (t) { return t.link.split('?')[0] === f; }).reduce(function (s, t) { return s + t.n; }, 0);
       var b = a.querySelector('.mn'); if (n) { if (!b) { b = document.createElement('span'); b.className = 'mn'; a.appendChild(b); } b.textContent = n > 99 ? '99+' : n; } else if (b) b.remove();
+      if (!pin && S.menuAllowed && !S.menuAllowed(f)) a.style.display = 'none'; else a.style.display = '';
     });
+    var file = (window.CTX || {}).file;
+    if (!pin && file && S.menuAllowed && !S.menuAllowed(file)) {
+      var denied = document.getElementById('app');
+      if (denied) denied.innerHTML = App.empty('当前角色未授权此菜单');
+    }
   };
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-shell]'); if (!t) return;
@@ -3352,7 +3667,7 @@ body.login-body{min-height:100vh;background:#F3F6FA}
     if (cfg.tabs && !cfg.tabs.some(function (t) { return t.l === st.tab; })) st.tab = cfg.tabs[0].l;
     var ctl = { el: el, cfg: cfg, st: st };
     var acts = cfg.acts || [];
-    function base() { var a = typeof cfg.rows === 'function' ? cfg.rows() : S.where(cfg.ent, cfg.base ? App.ex(cfg.base) : null); return a; }
+    function base() { var a = typeof cfg.rows === 'function' ? cfg.rows() : S.where(cfg.ent, cfg.base ? App.ex(cfg.base) : null); return a.filter(function (r) { return !S.scopeOk || S.scopeOk(r); }); }
     function filtered(skipTab) {
       var a = base();
       if (!skipTab && cfg.tabs) { var t = cfg.tabs.find(function (x) { return x.l === st.tab; }); if (t && t.f) a = a.filter(App.ex(t.f)); }
@@ -3527,9 +3842,32 @@ body.login-body{min-height:100vh;background:#F3F6FA}
       okText: r ? '保存' : '提交',
       onSubmit: function (d) {
         if (cfg.validate) { var err = cfg.validate(d, r); if (err) { App.toast(err, 'warn'); return false; } }
-        if (r) { if (cfg.onEdit) return cfg.onEdit(r, d, ctl); Object.assign(r, d); S.tl(r, '编辑信息'); S.log('编辑' + name, r.no || r.name); S.save(); return '保存成功'; }
-        if (cfg.onAdd) return cfg.onAdd(d, ctl);
-        var n = S.add(cfg.ent, Object.assign(App.defaults(cfg), d)); S.tl(n, '新建'); S.log('新增' + name, n.no || n.name); S.save(); return '新增成功' + (n.no ? '，编号 ' + n.no : '');
+        function restore(rec, snap) {
+          Object.keys(rec).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(snap, k)) delete rec[k]; });
+          Object.keys(snap).forEach(function (k) { rec[k] = snap[k]; });
+        }
+        if (r) {
+          var snap = JSON.parse(JSON.stringify(r));
+          if (cfg.onEdit) {
+            var er = cfg.onEdit(r, d, ctl);
+            if (er === false) { restore(r, snap); return false; }
+            if (typeof er === 'string') return er;
+          }
+          Object.assign(r, d);
+          if (cfg.afterEdit) cfg.afterEdit(r, d, ctl);
+          S.tl(r, '编辑信息'); S.log('编辑' + name, r.no || r.name); S.save();
+          return '保存成功';
+        }
+        if (cfg.onAdd) {
+          var ar = cfg.onAdd(d, ctl);
+          if (ar === false) return false;
+          if (typeof ar === 'string') return ar;
+        }
+        var n = S.add(cfg.ent, Object.assign(App.defaults(cfg), d));
+        if (cfg.afterAdd) cfg.afterAdd(n, d, ctl);
+        if (!n.tl || !n.tl.length) S.tl(n, '新建');
+        S.log('新增' + name, n.no || n.name); S.save();
+        return '新增成功' + (n.no ? '，编号 ' + n.no : '');
       }
     });
   };
@@ -3662,7 +4000,7 @@ S.load();
 var esc = App.esc, u = S.u;
 function od(r) { return r.status !== '已闭环' && r.status !== '待复查' && u.parse(r.deadline) < Date.now(); }
 var L = App.list('#app', {
-  ent: 'rect', base: "r.unitType=='center'", sort: { k: 'createdAt', d: -1 },
+  ent: 'rect', base: function (r) { return r.unitType === 'center' && S.centerOwn(r); }, sort: { k: 'createdAt', d: -1 },
   rowCls: function (r) { return od(r) ? 'hl' : ''; },
   tabs: [{ l: '待整改', f: "r.status=='待整改'" }, { l: '整改中', f: "r.status=='整改中'" }, { l: '待复查', f: "r.status=='待复查'" }, { l: '已闭环', f: "r.status=='已闭环'", nonum: true }, { l: '全部', nonum: true }],
   stats: [
