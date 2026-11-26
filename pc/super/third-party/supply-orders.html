@@ -277,6 +277,8 @@ tr.hl td{background:#FFFBF0}tr.dim td{color:var(--t3)}
 .c-red{background:var(--err-l);color:var(--err)}.c-purple{background:#F0ECFF;color:#7B61FF}.c-cyan{background:#E0F7FA;color:#00A3BF}.c-gray{background:var(--off-l);color:var(--off)}
 .c-off{background:var(--off-l);color:var(--off)}
 .mt4{margin-top:4px}.fs15{font-size:15px}
+svg.schart{width:100%;height:100%;display:block}
+.chart{overflow:hidden}
 
 /* PC 端外壳：侧栏 220、顶栏 56、设计宽度 1440 */
 body.pc{min-width:1280px}
@@ -343,7 +345,7 @@ body.pc{min-width:1280px}
 .tbar .sel-info{font-size:13px;color:var(--t2);margin-left:auto}
 .tbar .sel-info b{color:var(--pri)}
 .list-tabs{padding:0 20px}
-.chart{height:280px}
+.chart{height:280px;overflow:hidden}
 .chart.sm{height:220px}.chart.lg{height:340px}
 .chart-fb{height:100%;display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:13px;background:repeating-linear-gradient(45deg,#FAFBFC,#FAFBFC 10px,#F4F6F8 10px,#F4F6F8 20px);border-radius:6px}
 .todo-list .ti{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px dashed var(--line);cursor:pointer}
@@ -3517,14 +3519,411 @@ body.login-body{min-height:100vh;background:#F3F6FA}
   /* ---------- 图表 ---------- */
   var PAL = ['#3087CC', '#1BB975', '#F29100', '#9CBFDA', '#DF2027', '#006DAD', '#7B61FF', '#00A3BF'];
   App.PAL = PAL;
+  App._cid = 0;
+  var CH_FF = 'OPPOSans, PingFang SC, Microsoft YaHei, sans-serif';
+  function chartSvg(el, opt) {
+    function n1(v) { return Math.round(v * 10) / 10; }
+    function clean(v) { return Math.round(v * 1000) / 1000; }
+    function pt(raw) {
+      if (raw == null || raw === '') return null;
+      if (typeof raw === 'object') raw = raw.value;
+      if (raw == null || raw === '') return null;
+      var n = +raw;
+      return isNaN(n) ? null : n;
+    }
+    function fmt(v) {
+      if (v == null || isNaN(v)) return '—';
+      var a = Math.abs(v);
+      if (a >= 10000) {
+        var w = v / 10000;
+        return String(a >= 1000000 ? Math.round(w) : Math.round(w * 10) / 10).replace(/\.0$/, '') + '万';
+      }
+      if (Math.abs(v - Math.round(v)) < 0.05) return String(Math.round(v));
+      return String(Math.round(v * 10) / 10);
+    }
+    function axisText(v, axis) {
+      var f = axis && axis.axisLabel && axis.axisLabel.formatter;
+      if (typeof f === 'function') { try { return String(f(v)); } catch (e) { return fmt(v); } }
+      if (typeof f === 'string') return f.split('{value}').join(fmt(v));
+      return fmt(v);
+    }
+    function tw(str, fs) {
+      var w = 0, s = String(str == null ? '' : str), i;
+      for (i = 0; i < s.length; i++) w += s.charCodeAt(i) > 255 ? fs : fs * 0.56;
+      return w;
+    }
+    function cut(s, n) { s = s == null ? '' : String(s); return s.length > n ? s.slice(0, n) + '…' : s; }
+    function darkOf(o) {
+      var bg = o.tooltip && o.tooltip.backgroundColor;
+      if (bg && String(bg).indexOf('8,30,70') >= 0) return true;
+      var lc = o.legend && o.legend.textStyle && o.legend.textStyle.color;
+      if (lc === '#8FB8E8') return true;
+      function ax(a) { return a && a.axisLabel && a.axisLabel.color; }
+      return ax(o.xAxis) === '#8FB8E8' || ax(o.yAxis) === '#8FB8E8';
+    }
+    function nice(v) {
+      if (!(v > 0)) return 1;
+      var p = Math.pow(10, Math.floor(Math.log10(v)));
+      var n = v / p;
+      var m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+      return clean(m * p);
+    }
+    function ticks(min, max) {
+      var span = max - min;
+      if (!(span > 0)) return [clean(min)];
+      var raw = span / 4;
+      var p = Math.pow(10, Math.floor(Math.log10(raw)));
+      if (!(p > 0)) return [clean(min), clean(max)];
+      var n = raw / p;
+      var m = n <= 1.5 ? 1 : n <= 3 ? 2 : n <= 7 ? 5 : 10;
+      var step = m * p;
+      if (!(step > 0)) return [clean(min), clean(max)];
+      var start = Math.ceil((min - step * 1e-6) / step) * step;
+      if (start < min) start += step;
+      var out = [], v, g;
+      for (v = start, g = 0; v <= max + step * 0.001 && g < 8; v += step, g++) out.push(clean(v));
+      if (!out.length || out[0] - min > step * 0.2) out.unshift(clean(min));
+      if (max - out[out.length - 1] > step * 0.2) out.push(clean(max));
+      return out;
+    }
+    function colorOf(c, i, pal, defs) {
+      if (c && typeof c === 'object' && c.colorStops && c.colorStops.length) {
+        if (!defs) return c.colorStops[c.colorStops.length - 1].color || pal[i % pal.length];
+        var id = 'sg' + (++App._cid);
+        var stops = c.colorStops.map(function (st) { return '<stop offset="' + ((st.offset || 0) * 100) + '%" stop-color="' + st.color + '"/>'; }).join('');
+        defs.push('<linearGradient id="' + id + '" x1="' + (c.x1 || 0) + '" y1="' + (c.y1 || 0) + '" x2="' + (c.x2 == null ? 0 : c.x2) + '" y2="' + (c.y2 == null ? 1 : c.y2) + '">' + stops + '</linearGradient>');
+        return 'url(#' + id + ')';
+      }
+      if (typeof c === 'string' && c) return c;
+      return pal[i % pal.length];
+    }
+    function box() {
+      var w = el.clientWidth || 0, h = el.clientHeight || 0;
+      if (h < 40 && el.parentElement) h = el.parentElement.clientHeight || 0;
+      if (w < 40) w = 560;
+      if (h < 40) h = 240;
+      return { w: Math.round(w), h: Math.round(h) };
+    }
+    function wrap(W, H, defs, parts, label) {
+      return '<svg class="schart" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + esc(label || '图表示意') + '">' + (defs.length ? '<defs>' + defs.join('') + '</defs>' : '') + parts.join('') + '</svg>';
+    }
+    function empty(W, H, dark, text) {
+      return wrap(W, H, [], ['<text x="' + (W / 2) + '" y="' + (H / 2) + '" text-anchor="middle" fill="' + (dark ? '#8FB8E8' : '#9096A2') + '" font-size="13" font-family="' + CH_FF + '">' + esc(text) + '</text>'], text);
+    }
+    function tx(x, y, str, o) {
+      o = o || {};
+      var s = '<text x="' + n1(x) + '" y="' + n1(y) + '" fill="' + (o.fill || '#9096A2') + '" font-size="' + (o.fs || 11) + '" font-family="' + CH_FF + '" text-anchor="' + (o.anchor || 'middle') + '"';
+      if (o.weight) s += ' font-weight="' + o.weight + '"';
+      if (o.rot) s += ' transform="rotate(' + o.rot + ' ' + n1(x) + ' ' + n1(y) + ')"';
+      s += '>';
+      if (o.title) s += '<title>' + esc(o.title) + '</title>';
+      return s + esc(str) + '</text>';
+    }
+    function ln(x1, y1, x2, y2, color) {
+      return '<line x1="' + n1(x1) + '" y1="' + n1(y1) + '" x2="' + n1(x2) + '" y2="' + n1(y2) + '" stroke="' + color + '" stroke-width="1"/>';
+    }
+    function pathOf(pts, smooth) {
+      if (pts.length < 2) return '';
+      var d = 'M' + n1(pts[0][0]) + ' ' + n1(pts[0][1]), i;
+      if (!smooth) {
+        for (i = 1; i < pts.length; i++) d += ' L' + n1(pts[i][0]) + ' ' + n1(pts[i][1]);
+        return d;
+      }
+      for (i = 0; i < pts.length - 1; i++) {
+        var p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        d += ' C' + n1(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + n1(p1[1] + (p2[1] - p0[1]) / 6) + ' ' + n1(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + n1(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + n1(p2[0]) + ' ' + n1(p2[1]);
+      }
+      return d;
+    }
+    function polar(cx, cy, r, a) { return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+    function donut(cx, cy, R, r, a0, a1) {
+      var large = (a1 - a0) > Math.PI ? 1 : 0;
+      var o0 = polar(cx, cy, R, a0), o1 = polar(cx, cy, R, a1);
+      if (!(r > 0)) return 'M' + n1(cx) + ' ' + n1(cy) + ' L' + n1(o0[0]) + ' ' + n1(o0[1]) + ' A' + n1(R) + ' ' + n1(R) + ' 0 ' + large + ' 1 ' + n1(o1[0]) + ' ' + n1(o1[1]) + ' Z';
+      var i0 = polar(cx, cy, r, a0), i1 = polar(cx, cy, r, a1);
+      return 'M' + n1(o0[0]) + ' ' + n1(o0[1]) + ' A' + n1(R) + ' ' + n1(R) + ' 0 ' + large + ' 1 ' + n1(o1[0]) + ' ' + n1(o1[1]) + ' L' + n1(i1[0]) + ' ' + n1(i1[1]) + ' A' + n1(r) + ' ' + n1(r) + ' 0 ' + large + ' 0 ' + n1(i0[0]) + ' ' + n1(i0[1]) + ' Z';
+    }
+    function pie(o, dark) {
+      var b = box(), W = b.w, H = b.h, defs = [];
+      var s0 = (o.series && o.series[0]) || {};
+      var raw = s0.data || [];
+      var pal = o.color && o.color.length ? o.color : PAL;
+      var items = raw.map(function (d, i) {
+        var v = pt(d);
+        return { name: d && d.name != null ? String(d.name) : ('项' + (i + 1)), value: v == null ? 0 : v, color: colorOf(d && d.itemStyle && d.itemStyle.color, i, pal, defs) };
+      });
+      var drawItems = items.filter(function (d) { return d.value > 0; });
+      if (!drawItems.length) drawItems = items;
+      if (!drawItems.length) return empty(W, H, dark, '暂无图示数据');
+      var total = 0;
+      drawItems.forEach(function (d) { total += d.value; });
+      var ring = Array.isArray(s0.radius);
+      var fs = drawItems.length > 8 ? 11 : 12;
+      var lh = drawItems.length > 8 ? 16 : 20;
+      if (drawItems.length * lh > H - 8) lh = Math.max(13, (H - 8) / drawItems.length);
+      var labels = drawItems.map(function (d) {
+        var pct = total ? Math.round(d.value / total * 100) : 0;
+        return cut(d.name, W < 420 ? 4 : 8) + '  ' + fmt(d.value) + '  ' + pct + '%';
+      });
+      var legendW = 0;
+      labels.forEach(function (t) { legendW = Math.max(legendW, tw(t, fs)); });
+      legendW = Math.min(Math.max(legendW + 22, 96), W * 0.58);
+      var R = Math.max(32, Math.min((H - 20) * 0.42, (W - legendW - 20) * 0.46));
+      var hole = ring ? Math.round(R * 0.62) : 0;
+      var cx = Math.max(R + 8, (W - legendW) * 0.46);
+      var cy = H / 2 + 2;
+      var parts = [], a = -Math.PI / 2;
+      var stroke = dark ? '#061428' : '#fff';
+      if (!(total > 0)) parts.push('<circle cx="' + n1(cx) + '" cy="' + n1(cy) + '" r="' + n1((R + hole) / 2) + '" fill="none" stroke="' + (dark ? 'rgba(143,184,232,.3)' : '#E6E8EC') + '" stroke-width="' + n1(Math.max(12, R - hole)) + '"/>');
+      else drawItems.forEach(function (d) {
+        if (!(d.value > 0)) return;
+        var ang = Math.PI * 2 * d.value / total;
+        if (ang >= Math.PI * 2) ang = Math.PI * 2 - 0.0001;
+        parts.push('<path d="' + donut(cx, cy, R, hole, a, a + ang) + '" fill="' + d.color + '" stroke="' + stroke + '" stroke-width="2"><title>' + esc(d.name + ' ' + fmt(d.value)) + '</title></path>');
+        a += ang;
+      });
+      if (ring) {
+        var fsC = Math.max(13, Math.min(24, (hole || R) * 0.42));
+        parts.push(tx(cx, cy + 1, total > 0 ? fmt(total) : '0', { fill: dark ? '#fff' : '#3C444F', fs: fsC, weight: 700 }));
+        parts.push(tx(cx, cy + fsC * 0.62 + 4, '合计', { fill: dark ? '#8FB8E8' : '#9096A2', fs: 12 }));
+      }
+      var lx = W - legendW;
+      var ly0 = Math.max(14, (H - drawItems.length * lh) / 2 + 10);
+      drawItems.forEach(function (d, i) {
+        var y = ly0 + i * lh;
+        parts.push('<circle cx="' + n1(lx + 5) + '" cy="' + n1(y - 4) + '" r="4" fill="' + d.color + '"/>');
+        parts.push(tx(lx + 14, y, labels[i], { fill: dark ? '#CFE3FF' : '#4E5663', fs: fs, anchor: 'start', title: d.name }));
+      });
+      return wrap(W, H, defs, parts, '分布');
+    }
+    function gauge(o, dark) {
+      var b = box(), W = b.w, H = b.h;
+      var s = (o.series && o.series[0]) || {};
+      var d0 = (s.data && s.data[0]) || {};
+      var v = pt(d0);
+      if (v == null) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      var name = d0.name || '';
+      var det = (s.detail && s.detail.formatter) || '{value}%';
+      var numText = typeof det === 'string' ? det.split('{value}').join(fmt(v)) : fmt(v);
+      var col = (s.progress && s.progress.itemStyle && s.progress.itemStyle.color) || '#3087CC';
+      var R = Math.max(36, Math.min(W * 0.3, H * 0.36));
+      var cx = W / 2, cy = H * 0.5;
+      var C = 2 * Math.PI * R, arcLen = C * 0.75, prog = arcLen * v / 100, sw = Math.max(10, R * 0.16);
+      var rot = 'rotate(135 ' + n1(cx) + ' ' + n1(cy) + ')';
+      var parts = ['<circle cx="' + n1(cx) + '" cy="' + n1(cy) + '" r="' + n1(R) + '" fill="none" stroke="' + (dark ? 'rgba(143,184,232,.22)' : '#EEF1F5') + '" stroke-width="' + n1(sw) + '" stroke-linecap="round" stroke-dasharray="' + n1(arcLen) + ' ' + n1(C) + '" transform="' + rot + '"/>'];
+      if (prog > 0.5) parts.push('<circle cx="' + n1(cx) + '" cy="' + n1(cy) + '" r="' + n1(R) + '" fill="none" stroke="' + col + '" stroke-width="' + n1(sw) + '" stroke-linecap="round" stroke-dasharray="' + n1(prog) + ' ' + n1(C) + '" transform="' + rot + '"/>');
+      var fs = Math.min(32, R * 0.46);
+      parts.push(tx(cx, cy + fs * 0.15, numText, { fill: dark ? '#fff' : '#3C444F', fs: fs, weight: 700 }));
+      if (name) parts.push(tx(cx, cy + fs * 0.15 + 20, name, { fill: dark ? '#8FB8E8' : '#9096A2', fs: 13 }));
+      return wrap(W, H, [], parts, name || '仪表');
+    }
+    function cartesian(o, dark) {
+      var b = box(), W = b.w, H = b.h, defs = [];
+      var xAx = o.xAxis || {}, yAx = o.yAxis || {};
+      var horizontal = yAx.type === 'category';
+      var catAx = horizontal ? yAx : xAx;
+      var valAx = horizontal ? xAx : yAx;
+      var cats = catAx.data || [];
+      var series = o.series || [];
+      var pal = o.color && o.color.length ? o.color : PAL;
+      if (!cats.length) return empty(W, H, dark, '暂无图示数据');
+      var gridC = dark ? 'rgba(143,184,232,.16)' : '#F0F2F5';
+      var axisC = dark ? 'rgba(143,184,232,.45)' : '#C8CAD1';
+      var catColor = (catAx.axisLabel && catAx.axisLabel.color) || (dark ? '#8FB8E8' : '#696F7D');
+      var valColor = (valAx.axisLabel && valAx.axisLabel.color) || (dark ? '#8FB8E8' : '#9096A2');
+      var maxV = 0, minV = 0, stackPos = {};
+      series.forEach(function (s) {
+        var data = s.data || [], i, v, key;
+        for (i = 0; i < cats.length; i++) {
+          v = pt(data[i]);
+          if (v == null) continue;
+          if (s.stack && s.type === 'bar') { key = s.stack + '|' + i; stackPos[key] = (stackPos[key] || 0) + v; }
+          else { if (v > maxV) maxV = v; if (v < minV) minV = v; }
+        }
+      });
+      Object.keys(stackPos).forEach(function (k) { if (stackPos[k] > maxV) maxV = stackPos[k]; });
+      var dmax = valAx.max != null ? +valAx.max : nice(maxV);
+      var dmin = valAx.min != null ? +valAx.min : (minV < 0 ? -nice(-minV) : 0);
+      if (!(dmax > dmin)) dmax = dmin + 1;
+      var ts = ticks(dmin, dmax);
+      var cols = series.map(function (s, i) { return colorOf(s.itemStyle && s.itemStyle.color, i, pal, defs); });
+      var legend = [];
+      if (o.legend) series.forEach(function (s, i) { if (s.name) legend.push({ name: s.name, color: cols[i], type: s.type || 'line' }); });
+      var hasBar = series.some(function (s) { return s.type === 'bar'; });
+      var edge = !hasBar && catAx.boundaryGap === false && cats.length > 1;
+      var showLab = series.some(function (s) { return s.label && s.label.show; });
+      var catFs = cats.length > 16 ? 10 : 11;
+      var maxCat = 0, maxTick = 0;
+      cats.forEach(function (c) { maxCat = Math.max(maxCat, tw(cut(c, horizontal ? 8 : 8), catFs)); });
+      ts.forEach(function (t) { maxTick = Math.max(maxTick, tw(axisText(t, valAx), 11)); });
+      var padT = legend.length ? 26 : 12;
+      var padR = horizontal && showLab ? 50 : (edge ? 20 : 12);
+      var padL = horizontal ? Math.min(W * 0.42, Math.max(52, maxCat + 12)) : Math.max(36, maxTick + 10);
+      var padB = horizontal ? 22 : 24;
+      if (edge) {
+        padL = Math.max(padL, tw(String(cats[0]), catFs) / 2 + 6);
+        padR = Math.max(padR, tw(String(cats[cats.length - 1]), catFs) / 2 + 8);
+      }
+      var plotL = padL, plotT = padT, plotW = Math.max(24, W - padL - padR), plotH = Math.max(24, H - padT - padB);
+      function yOf(v) { return plotT + (1 - (v - dmin) / (dmax - dmin)) * plotH; }
+      function xOf(v) { return plotL + (v - dmin) / (dmax - dmin) * plotW; }
+      var slotX = plotW / cats.length, slotY = plotH / cats.length;
+      var inverse = !!catAx.inverse;
+      function xCat(i) { return edge ? plotL + plotW * i / (cats.length - 1) : plotL + slotX * (i + 0.5); }
+      function yCat(i) { var row = inverse ? i : (cats.length - 1 - i); return plotT + slotY * (row + 0.5); }
+      var slotLabel = horizontal ? slotY : (edge ? plotW / (cats.length - 1) : slotX);
+      var step = 1;
+      if (!horizontal && slotLabel < 34) step = Math.max(1, Math.ceil(34 / Math.max(8, slotLabel)));
+      if (horizontal && slotY < 15) step = Math.max(1, Math.ceil(15 / Math.max(8, slotY)));
+      var shown = {}, siLab;
+      for (siLab = 0; siLab < cats.length; siLab++) if (siLab % step === 0) shown[siLab] = 1;
+      if (cats.length > 1 && !shown[cats.length - 1]) {
+        var prevLab = Math.floor((cats.length - 1) / step) * step;
+        if (slotLabel * (cats.length - 1 - prevLab) < 36) delete shown[prevLab];
+        shown[cats.length - 1] = 1;
+      }
+      var parts = [];
+      ts.forEach(function (t) {
+        if (horizontal) {
+          var x = xOf(t);
+          if (Math.abs(x - plotL) > 1) parts.push(ln(x, plotT, x, plotT + plotH, gridC));
+          parts.push(tx(x, plotT + plotH + 14, axisText(t, valAx), { fill: valColor, fs: 10 }));
+        } else {
+          var y = yOf(t);
+          if (Math.abs(y - (plotT + plotH)) > 1) parts.push(ln(plotL, y, plotL + plotW, y, gridC));
+          parts.push(tx(plotL - 6, y + 4, axisText(t, valAx), { fill: valColor, fs: 11, anchor: 'end' }));
+        }
+      });
+      parts.push(ln(plotL, plotT + plotH, plotL + plotW, plotT + plotH, axisC));
+      parts.push(ln(plotL, plotT, plotL, plotT + plotH, axisC));
+      cats.forEach(function (c, i) {
+        if (!shown[i]) return;
+        if (horizontal) parts.push(tx(plotL - 8, yCat(i) + 4, cut(c, 8), { fill: catColor, fs: catFs, anchor: 'end', title: String(c) }));
+        else parts.push(tx(xCat(i), plotT + plotH + 16, cut(c, cats.length > 12 ? 5 : 10), { fill: catColor, fs: catFs, title: String(c) }));
+      });
+      var barSeries = [], stackKeys = [];
+      series.forEach(function (s, i) {
+        if (s.type !== 'bar') return;
+        if (s.stack) { if (stackKeys.indexOf(s.stack) < 0) stackKeys.push(s.stack); }
+        else barSeries.push(i);
+      });
+      var groups = Math.max(1, barSeries.length + stackKeys.length);
+      var gMap = {}, gi = 0;
+      barSeries.forEach(function (i) { gMap[i] = gi++; });
+      stackKeys.forEach(function (k) {
+        series.forEach(function (s, i) { if (s.type === 'bar' && s.stack === k) gMap[i] = gi; });
+        gi++;
+      });
+      var pref = 0;
+      series.forEach(function (s) {
+        if (s.type !== 'bar') return;
+        var w = s.barWidth || s.barMaxWidth;
+        if (w && (!pref || w < pref)) pref = w;
+      });
+      if (!pref) pref = horizontal ? 14 : 22;
+      var band = horizontal ? slotY : slotX;
+      var thick = Math.max(4, Math.min((band * 0.72) / groups, pref));
+      var pitch = thick + Math.min(4, thick * 0.25);
+      var acc = {};
+      function lastStack(s, si) {
+        if (!s.stack) return true;
+        var j;
+        for (j = si + 1; j < series.length; j++) if (series[j].type === 'bar' && series[j].stack === s.stack) return false;
+        return true;
+      }
+      series.forEach(function (s, si) {
+        if (s.type !== 'bar') return;
+        var data = s.data || [], i, v, b0, y1, y2, x1, x0, top, bh, left, bw, gx, cx0, yy;
+        for (i = 0; i < cats.length; i++) {
+          v = pt(data[i]);
+          if (v == null) continue;
+          b0 = 0;
+          if (s.stack) { var key = s.stack + '|' + i; b0 = acc[key] || 0; acc[key] = b0 + v; }
+          gx = gMap[si] || 0;
+          if (horizontal) {
+            x0 = xOf(Math.max(dmin, Math.min(dmax, b0)));
+            x1 = xOf(Math.max(dmin, Math.min(dmax, b0 + v)));
+            left = Math.min(x0, x1); bw = Math.abs(x1 - x0);
+            if (bw < 0.6) continue;
+            yy = yCat(i) + (gx - (groups - 1) / 2) * pitch - thick / 2;
+            parts.push('<rect x="' + n1(left) + '" y="' + n1(yy) + '" width="' + n1(bw) + '" height="' + n1(thick) + '" rx="' + n1(Math.min(3, thick / 2)) + '" fill="' + cols[si] + '"><title>' + esc(cats[i] + ' ' + (s.name || '') + ' ' + fmt(v)) + '</title></rect>');
+            if (s.label && s.label.show && band >= 14 && lastStack(s, si)) parts.push(tx(left + bw + 4, yy + thick / 2 + 4, fmt(s.stack ? acc[s.stack + '|' + i] : v), { fill: (s.label.color) || (dark ? '#CFE3FF' : '#696F7D'), fs: 11, anchor: 'start' }));
+          } else {
+            y1 = yOf(Math.max(dmin, Math.min(dmax, b0)));
+            y2 = yOf(Math.max(dmin, Math.min(dmax, b0 + v)));
+            top = Math.min(y1, y2); bh = Math.abs(y2 - y1);
+            if (bh < 0.6) continue;
+            cx0 = xCat(i) + (gx - (groups - 1) / 2) * pitch;
+            parts.push('<rect x="' + n1(cx0 - thick / 2) + '" y="' + n1(top) + '" width="' + n1(thick) + '" height="' + n1(bh) + '" rx="' + n1(Math.min(3, thick / 2)) + '" fill="' + cols[si] + '"><title>' + esc(cats[i] + ' ' + (s.name || '') + ' ' + fmt(v)) + '</title></rect>');
+            if (s.label && s.label.show && band >= 16 && lastStack(s, si)) {
+              var ly = top - 4;
+              if (ly < plotT + 8) ly = top + 12;
+              parts.push(tx(cx0, ly, fmt(s.stack ? acc[s.stack + '|' + i] : v), { fill: (s.label.color) || (dark ? '#CFE3FF' : '#696F7D'), fs: 11 }));
+            }
+          }
+        }
+      });
+      var clip = 'cl' + (++App._cid);
+      defs.push('<clipPath id="' + clip + '"><rect x="' + n1(plotL - 6) + '" y="' + n1(plotT - 8) + '" width="' + n1(plotW + 12) + '" height="' + n1(plotH + 12) + '"/></clipPath>');
+      var lines = [];
+      series.forEach(function (s, si) {
+        if (s.type === 'bar') return;
+        var data = s.data || [], segs = [], cur = [], i, v, xy;
+        for (i = 0; i < cats.length; i++) {
+          v = pt(data[i]);
+          if (v == null) { if (!s.connectNulls && cur.length) { segs.push(cur); cur = []; } continue; }
+          var vv = Math.max(dmin, Math.min(dmax, v));
+          xy = horizontal ? [xOf(vv), yCat(i), v, i] : [xCat(i), yOf(vv), v, i];
+          cur.push(xy);
+        }
+        if (cur.length) segs.push(cur);
+        segs.forEach(function (pts) {
+          var xy = pts.map(function (p) { return [p[0], p[1]]; });
+          var d = pathOf(xy, !!s.smooth);
+          if (s.areaStyle && d && !horizontal) {
+            var fill = s.areaStyle.color, op = 0.16;
+            if (typeof fill !== 'string') fill = cols[si]; else op = 1;
+            lines.push('<path d="' + d + ' L' + n1(xy[xy.length - 1][0]) + ' ' + n1(plotT + plotH) + ' L' + n1(xy[0][0]) + ' ' + n1(plotT + plotH) + ' Z" fill="' + fill + '" fill-opacity="' + op + '" stroke="none"/>');
+          }
+          if (d) lines.push('<path d="' + d + '" fill="none" stroke="' + cols[si] + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>');
+          if (s.symbol !== 'none' && cats.length <= 18) pts.forEach(function (p) {
+            lines.push('<circle cx="' + n1(p[0]) + '" cy="' + n1(p[1]) + '" r="3" fill="#fff" stroke="' + cols[si] + '" stroke-width="2"><title>' + esc(cats[p[3]] + ' ' + (s.name || '') + ' ' + fmt(p[2])) + '</title></circle>');
+          });
+          if (pts.length) {
+            var lp = pts[pts.length - 1];
+            var ly = lp[1] - 8 - (si % 2) * 12;
+            if (ly < plotT + 10) ly = lp[1] + 14;
+            lines.push(tx(Math.min(plotL + plotW - 2, lp[0] + 4), ly, fmt(lp[2]), { fill: cols[si], fs: 11, anchor: lp[0] > plotL + plotW - 28 ? 'end' : 'start' }));
+          }
+        });
+      });
+      if (lines.length) parts.push('<g clip-path="url(#' + clip + ')">' + lines.join('') + '</g>');
+      if (legend.length) {
+        var lx = W - 8, li;
+        for (li = legend.length - 1; li >= 0; li--) {
+          var it = legend[li];
+          lx -= tw(it.name, 12);
+          parts.push(tx(lx, 14, it.name, { fill: dark ? '#C5D8F0' : '#4E5663', fs: 12, anchor: 'start' }));
+          lx -= 18;
+          if (it.type === 'line') parts.push('<line x1="' + n1(lx) + '" y1="10" x2="' + n1(lx + 14) + '" y2="10" stroke="' + it.color + '" stroke-width="2"/><circle cx="' + n1(lx + 7) + '" cy="10" r="2.5" fill="' + it.color + '"/>');
+          else parts.push('<rect x="' + n1(lx + 2) + '" y="5" width="10" height="10" rx="2" fill="' + it.color + '"/>');
+          lx -= 14;
+        }
+      }
+      return wrap(W, H, defs, parts, (legend[0] && legend[0].name) || '趋势');
+    }
+    var series0 = (opt.series && opt.series[0]) || {};
+    var dark = darkOf(opt);
+    if (series0.type === 'pie') return pie(opt, dark);
+    if (series0.type === 'gauge') return gauge(opt, dark);
+    return cartesian(opt, dark);
+  }
   App.chart = function (el, opt) {
     if (typeof el === 'string') el = document.querySelector(el); if (!el) return;
-    if (!window.echarts) { el.innerHTML = '<div class="chart-fb">' + ic('chart-histogram', 18) + '&nbsp;图表组件需联网加载（ECharts CDN）</div>'; return; }
-    var c = echarts.getInstanceByDom(el) || echarts.init(el);
-    opt = Object.assign({ color: PAL, textStyle: { fontFamily: 'OPPOSans, PingFang SC, Microsoft YaHei' }, tooltip: { trigger: opt.series && opt.series[0] && opt.series[0].type === 'pie' ? 'item' : 'axis' }, grid: { left: 44, right: 20, top: 36, bottom: 30 } }, opt);
-    c.setOption(opt, true);
-    if (!el._ro) { el._ro = true; window.addEventListener('resize', function () { c.resize(); }); }
-    return c;
+    opt = opt || {};
+    try { el.innerHTML = chartSvg(el, opt); }
+    catch (err) { console.error(err); el.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#9096A2;font-size:13px">暂无图示数据</div>'; }
   };
   App.ch = {
     line: function (el, x, series, o) { return App.chart(el, Object.assign({ legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 4 }, xAxis: { type: 'category', data: x, boundaryGap: false, axisLine: { lineStyle: { color: '#C8CAD1' } }, axisLabel: { color: '#9096A2' } }, yAxis: { type: 'value', splitLine: { lineStyle: { color: '#F0F2F5' } }, axisLabel: { color: '#9096A2' } }, series: series.map(function (s, i) { return Object.assign({ type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, areaStyle: i === 0 ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(48,135,204,.25)' }, { offset: 1, color: 'rgba(48,135,204,0)' }] } } : undefined }, s); }) }, o || {})); },
